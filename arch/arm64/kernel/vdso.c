@@ -209,7 +209,7 @@ static int __init vdso_mappings_init(const char *name,
 	vdso_pagelist[0] = phys_to_page(__pa_symbol(vdso_data));
 
 	/* Grab the vDSO code pages. */
-	pfn = sym_to_pfn(code_start);
+	pfn = sym_to_pfn(&vdso_start);
 
 	for (i = 0; i < vdso_pages; i++)
 		vdso_pagelist[i + 1] = pfn_to_page(pfn + i);
