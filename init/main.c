@@ -81,15 +81,13 @@
 #include <linux/integrity.h>
 #include <linux/proc_ns.h>
 #include <linux/io.h>
+#include <linux/kaiser.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
 #include <asm/setup.h>
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
-#ifdef CONFIG_KAISER
-#include <asm/kaiser.h>
-#endif
 
 #ifdef CONFIG_HTC_EARLY_RTB
 #include <linux/msm_rtb.h>
@@ -496,9 +494,7 @@ static void __init mm_init(void)
 	pgtable_init();
 	vmalloc_init();
 	ioremap_huge_init();
-#ifdef CONFIG_KAISER
 	kaiser_init();
-#endif
 }
 
 asmlinkage __visible void __init start_kernel(void)
