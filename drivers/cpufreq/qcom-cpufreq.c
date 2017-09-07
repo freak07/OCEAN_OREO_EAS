@@ -37,7 +37,7 @@
 static DEFINE_MUTEX(l2bw_lock);
 
 
-static unsigned long arg_cpu_max_c1 = 1900800;
+static unsigned long arg_cpu_max_c1 = 2035200;
 
 static int __init cpufreq_read_cpu_max_c1(char *cpu_max_c1)
 {
@@ -54,7 +54,7 @@ static int __init cpufreq_read_cpu_max_c1(char *cpu_max_c1)
 }
 __setup("cpu_max_c1=", cpufreq_read_cpu_max_c1);
 
-static unsigned long arg_cpu_max_c2 = 2457600;
+static unsigned long arg_cpu_max_c2 = 2592000;
 
 static int __init cpufreq_read_cpu_max_c2(char *cpu_max_c2)
 {
