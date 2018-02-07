@@ -403,54 +403,6 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 				__func__, chipid, slave_info->sensor_id);
 		return -ENODEV;
 	}
-//HTC_START, check imx351 cut version, read address 0x18 value, cut 1.0 for value = 0~2, cut 1.1 for value >= 3
-	if(strncmp("imx351_htc", sensor_name, sizeof("imx351_htc")) == 0)
-	{
-		int rc1 = 0;
-		rc1 = sensor_i2c_client->i2c_func_tbl->i2c_read(
-		sensor_i2c_client, 0x0018,
-		&chipid, MSM_CAMERA_I2C_BYTE_DATA);
-		if (rc1 < 0){
-			pr_err("%s read addr 0x0018 fail\n", __func__);
-			return -ENODEV;
-		}
-		else
-		{
-			if(chipid>=0 && chipid<=2)
-			{
-			CDBG("%s cut 1.0 match ok:0x%x\n", __func__, chipid);
-			}
-			else
-			{
-			CDBG("%s cut 1.0 match fail:0x%x\n", __func__, chipid);
-			return -ENODEV;
-			}
-		}
-	}
-	else if(strncmp("imx351_cut11_htc", sensor_name, sizeof("imx351_cut11_htc")) == 0)
-	{
-		int rc1 = 0;
-		rc1 = sensor_i2c_client->i2c_func_tbl->i2c_read(
-		sensor_i2c_client, 0x0018,
-		&chipid, MSM_CAMERA_I2C_BYTE_DATA);
-		if (rc1 < 0){
-			CDBG("%s read addr 0x0018 fail\n", __func__);
-			return -ENODEV;
-		}
-		else
-		{
-			if(chipid>=3)
-			{
-			CDBG("%s cut 1.1 match ok:0x%x\n", __func__, chipid);
-			}
-			else
-			{
-			CDBG("%s cut 1.0 match fail:0x%x\n", __func__, chipid);
-			return -ENODEV;
-			}
-		}
-	}
-//HTC_END
 	return rc;
 }
 
