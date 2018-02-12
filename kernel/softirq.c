@@ -29,7 +29,6 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/irq.h>
-#include <linux/msm_rtb.h>
 
 /*
    - No shared variables, all the data are CPU local.
@@ -244,7 +243,7 @@ asmlinkage __visible void __do_softirq(void)
 	int max_restart = MAX_SOFTIRQ_RESTART;
 	struct softirq_action *h;
 	bool in_hardirq;
-	__u32 pending, pending_now, pending_delay, pending_mask;
+	__u32 pending;
 	int softirq_bit;
 
 	/*
@@ -254,20 +253,7 @@ asmlinkage __visible void __do_softirq(void)
 	 */
 	current->flags &= ~PF_MEMALLOC;
 
-	/*
-	 * If this is not the ksoftirqd thread,
-	 * and there is an RT task that is running or is waiting to run,
-	 * delay handling the long-running softirq handlers by leaving
-	 * them for the ksoftirqd thread.
-	 */
-	if (current != __this_cpu_read(ksoftirqd) &&
-	    cpu_has_rt_task(smp_processor_id()))
-		pending_mask = LONG_SOFTIRQ_MASK;
-	else
-		pending_mask = 0;
 	pending = local_softirq_pending();
-	pending_delay = pending & pending_mask;
-	pending_now   = pending & ~pending_mask;
 	account_irq_enter_time(current);
 
 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
@@ -275,14 +261,14 @@ asmlinkage __visible void __do_softirq(void)
 
 restart:
 	/* Reset the pending bitmask before enabling irqs */
-	__this_cpu_write(active_softirqs, pending_now);
-	set_softirq_pending(pending_delay);
+	set_softirq_pending(0);
+	__this_cpu_write(active_softirqs, pending);
 
 	local_irq_enable();
 
 	h = softirq_vec;
 
-	while ((softirq_bit = ffs(pending_now))) {
+	while ((softirq_bit = ffs(pending))) {
 		unsigned int vec_nr;
 		int prev_count;
 
@@ -294,7 +280,6 @@ restart:
 		kstat_incr_softirqs_this_cpu(vec_nr);
 
 		trace_softirq_entry(vec_nr);
-		uncached_logk(LOGK_SOFTIRQ, (void *)(h->action));
 		h->action(h);
 		trace_softirq_exit(vec_nr);
 		if (unlikely(prev_count != preempt_count())) {
@@ -304,7 +289,7 @@ restart:
 			preempt_count_set(prev_count);
 		}
 		h++;
-		pending_now >>= softirq_bit;
+		pending >>= softirq_bit;
 	}
 
 	__this_cpu_write(active_softirqs, 0);
@@ -312,20 +297,12 @@ restart:
 	local_irq_disable();
 
 	pending = local_softirq_pending();
-	pending_delay = pending & pending_mask;
-	pending_now   = pending & ~pending_mask;
 	if (pending) {
-		if (pending_now && time_before(jiffies, end) &&
+		if (time_before(jiffies, end) && !need_resched() &&
 		    !defer_for_rt() &&
-		    !need_resched() && --max_restart)
+		    --max_restart)
 			goto restart;
 
-		/*
-		 * Wake up ksoftirqd to handle remaining softirq's, either
-		 * because we are delaying a subset (pending_delayed)
-		 * to avoid interrupting an RT task, or because we have
-		 * exhausted the time limit.
-		 */
 		wakeup_softirqd();
 	}
 
