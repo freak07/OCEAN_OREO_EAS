@@ -390,7 +390,7 @@ nfqnl_build_packet_message(struct net *net, struct nfqnl_instance *queue,
 				  GFP_ATOMIC);
 	if (!skb) {
 		skb_tx_error(entskb);
-		goto nlmsg_failure;
+		return NULL;
 	}
 
 	nlh = nlmsg_put(skb, 0, 0,
@@ -399,7 +399,7 @@ nfqnl_build_packet_message(struct net *net, struct nfqnl_instance *queue,
 	if (!nlh) {
 		skb_tx_error(entskb);
 		kfree_skb(skb);
-		goto nlmsg_failure;
+		return NULL;
 	}
 	nfmsg = nlmsg_data(nlh);
 	nfmsg->nfgen_family = entry->state.pf;
@@ -542,17 +542,12 @@ nfqnl_build_packet_message(struct net *net, struct nfqnl_instance *queue,
 	}
 
 	nlh->nlmsg_len = skb->len;
-	if (seclen)
-		security_release_secctx(secdata, seclen);
 	return skb;
 
 nla_put_failure:
 	skb_tx_error(entskb);
 	kfree_skb(skb);
 	net_err_ratelimited("nf_queue: error creating packet message\n");
-nlmsg_failure:
-	if (seclen)
-		security_release_secctx(secdata, seclen);
 	return NULL;
 }
 
@@ -1053,8 +1048,10 @@ nfqnl_recv_verdict(struct sock *ctnl, struct sk_buff *skb,
 	struct net *net = sock_net(ctnl);
 	struct nfnl_queue_net *q = nfnl_queue_pernet(net);
 
-	queue = verdict_instance_lookup(q, queue_num,
-					NETLINK_CB(skb).portid);
+	queue = instance_lookup(q, queue_num);
+	if (!queue)
+		queue = verdict_instance_lookup(q, queue_num,
+						NETLINK_CB(skb).portid);
 	if (IS_ERR(queue))
 		return PTR_ERR(queue);
 

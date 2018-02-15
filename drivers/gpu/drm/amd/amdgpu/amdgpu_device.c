@@ -1760,11 +1760,8 @@ int amdgpu_resume_kms(struct drm_device *dev, bool resume, bool fbcon)
 	}
 
 	r = amdgpu_late_init(adev);
-	if (r) {
-		if (fbcon)
-			console_unlock();
+	if (r)
 		return r;
-	}
 
 	/* pin cursors */
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {

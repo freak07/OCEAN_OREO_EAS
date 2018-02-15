@@ -434,10 +434,8 @@ static int i8042_start(struct serio *serio)
 {
 	struct i8042_port *port = serio->port_data;
 
-	spin_lock_irq(&i8042_lock);
 	port->exists = true;
-	spin_unlock_irq(&i8042_lock);
-
+	mb();
 	return 0;
 }
 
@@ -450,20 +448,16 @@ static void i8042_stop(struct serio *serio)
 {
 	struct i8042_port *port = serio->port_data;
 
-	spin_lock_irq(&i8042_lock);
 	port->exists = false;
-	port->serio = NULL;
-	spin_unlock_irq(&i8042_lock);
 
 	/*
-	 * We need to make sure that interrupt handler finishes using
-	 * our serio port before we return from this function.
 	 * We synchronize with both AUX and KBD IRQs because there is
 	 * a (very unlikely) chance that AUX IRQ is raised for KBD port
 	 * and vice versa.
 	 */
 	synchronize_irq(I8042_AUX_IRQ);
 	synchronize_irq(I8042_KBD_IRQ);
+	port->serio = NULL;
 }
 
 /*
@@ -580,7 +574,7 @@ static irqreturn_t i8042_interrupt(int irq, void *dev_id)
 
 	spin_unlock_irqrestore(&i8042_lock, flags);
 
-	if (likely(serio && !filtered))
+	if (likely(port->exists && !filtered))
 		serio_interrupt(serio, data, dfl);
 
  out:

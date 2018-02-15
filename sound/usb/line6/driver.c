@@ -586,10 +586,9 @@ int line6_probe(struct usb_interface *interface,
 	return 0;
 
  error:
-	/* we can call disconnect callback here because no close-sync is
-	 * needed yet at this point
-	 */
-	line6_disconnect(interface);
+	if (line6->disconnect)
+		line6->disconnect(line6);
+	snd_card_free(card);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(line6_probe);
