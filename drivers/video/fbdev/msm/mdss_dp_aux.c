@@ -461,12 +461,6 @@ retry:
 		goto end;
 	}
 
-	if (!dp->dp_initialized) {
-		pr_err("DP not initialized!\n");
-		ret = -ENODEV;
-		goto end;
-	}
-
 	/* Adjust AUX configuration and retry */
 	pr_debug("AUX failure (%d), adjust AUX settings\n", ret);
 	mdss_dp_phy_aux_update_config(dp, PHY_AUX_CFG1);

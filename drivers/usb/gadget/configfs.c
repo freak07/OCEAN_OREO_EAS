@@ -1504,7 +1504,7 @@ static void android_work(struct work_struct *data)
 	}
 
 	if (usbmode == 0) {
-		if (resend_disconnect) {
+		if ((get_debug_flag() & 0x100) || usb_ats || resend_disconnect) {
 			//if (status[2]) {
 			kobject_uevent_env(&android_device->kobj,
 					KOBJ_CHANGE, disconnected);
