@@ -142,12 +142,6 @@ module_param(qmi_timeout, ulong, 0600);
 	} while (0)
 #endif
 
-#define icnss_pr_vdbg(_fmt, ...) do {					\
-		pr_debug(_fmt, ##__VA_ARGS__);				\
-		icnss_ipc_log_long_string("DBG: " pr_fmt(_fmt),		\
-				     ##__VA_ARGS__);			\
-	} while (0)
-
 #ifdef CONFIG_ICNSS_DEBUG
 #define ICNSS_ASSERT(_condition) do {					\
 		if (!(_condition)) {					\
