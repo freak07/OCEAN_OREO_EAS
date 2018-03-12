@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -440,7 +440,7 @@ void sap_update_unsafe_channel_list(ptSapContext pSapCtx)
 			if (CDS_IS_DFS_CH(safe_channels[i].channelNumber)) {
 				safe_channels[i].isSafe = false;
 				QDF_TRACE(QDF_MODULE_ID_SAP,
-					QDF_TRACE_LEVEL_INFO_HIGH,
+					QDF_TRACE_LEVEL_DEBUG,
 					"%s: DFS Ch %d is not safe in"
 					" Concurrent mode",
 					__func__,
@@ -461,7 +461,7 @@ void sap_update_unsafe_channel_list(ptSapContext pSapCtx)
 				/* Found unsafe channel, update it */
 				safe_channels[j].isSafe = false;
 				QDF_TRACE(QDF_MODULE_ID_SAP,
-					  QDF_TRACE_LEVEL_ERROR,
+					  QDF_TRACE_LEVEL_DEBUG,
 					  FL("CH %d is not safe"),
 					  unsafe_channel_list[i]);
 				break;
@@ -536,7 +536,6 @@ void sap_cleanup_channel_list(void *p_cds_gctx)
  *
  * Return: channel number if in acs channel list or SAP_CHANNEL_NOT_SELECTED
  */
-static
 uint8_t sap_channel_in_acs_channel_list(uint8_t channel_num,
 					ptSapContext sap_ctx,
 					tSapChSelSpectInfo *spect_info_params)
@@ -593,8 +592,8 @@ uint8_t sap_select_preferred_channel_from_channel_list(uint8_t best_chnl,
 		if ((sap_ctx->acs_cfg->ch_list[i] == best_chnl) &&
 		!(CDS_IS_DFS_CH(best_chnl) && cds_disallow_mcc(best_chnl))) {
 			QDF_TRACE(QDF_MODULE_ID_SAP,
-				QDF_TRACE_LEVEL_INFO_HIGH,
-				"Best channel is: %d",
+				QDF_TRACE_LEVEL_INFO,
+				"Best channel so far is: %d",
 				best_chnl);
 			return best_chnl;
 		}
@@ -641,6 +640,7 @@ static bool sap_chan_sel_init(tHalHandle halHandle,
 	bool include_dfs_ch = true;
 	bool sta_sap_scc_on_dfs_chan =
 		cds_is_sta_sap_scc_allowed_on_dfs_channel();
+	uint8_t chan_num;
 
 	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH, "In %s",
 		  __func__);
@@ -707,7 +707,7 @@ static bool sap_chan_sel_init(tHalHandle halHandle,
 			if ((safe_channels[i].channelNumber == *pChans) &&
 			    (false == safe_channels[i].isSafe)) {
 				QDF_TRACE(QDF_MODULE_ID_SAP,
-					  QDF_TRACE_LEVEL_INFO_HIGH,
+					  QDF_TRACE_LEVEL_DEBUG,
 					  "In %s, Ch %d is not safe", __func__,
 					  *pChans);
 				chSafe = false;
@@ -726,11 +726,31 @@ static bool sap_chan_sel_init(tHalHandle halHandle,
 		if (cds_is_dsrc_channel(cds_chan_to_freq(*pChans)))
 			continue;
 
+		if (!pSapCtx->enable_etsi_srd_chan_support &&
+				cds_is_etsi13_regdmn_srd_chan(
+				cds_chan_to_freq(*pChans)))
+			continue;
+
 		if (true == chSafe) {
 			pSpectCh->chNum = *pChans;
 			pSpectCh->valid = true;
 			pSpectCh->rssiAgr = SOFTAP_MIN_RSSI;    /* Initialise for all channels */
 			pSpectCh->channelWidth = SOFTAP_HT20_CHANNELWIDTH;      /* Initialise 20MHz for all the Channels */
+			/* Initialise max ACS weight for all channels */
+			pSpectCh->weight = SAP_ACS_WEIGHT_MAX;
+			for (chan_num = 0; chan_num < pSapCtx->num_of_channel;
+			     chan_num++) {
+				if (pSpectCh->chNum !=
+				    pSapCtx->channelList[chan_num])
+					continue;
+
+				/*
+				 * Initialize ACS weight to 0 for channels
+				 * present in sap context scan channel list
+				 */
+				pSpectCh->weight = 0;
+				break;
+			}
 		}
 	}
 	return true;
@@ -1255,6 +1275,7 @@ static void sap_interference_rssi_count_5G(tSapSpectChInfo *spect_ch,
 {
 	uint16_t num_ch;
 	int32_t offset = 0;
+
 	if (NULL == spect_ch) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
 			  FL("spect_ch is NULL"));
@@ -1687,6 +1708,9 @@ static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
 		if (ch_in_pcl(sap_ctx, chn_num))
 			rssi -= PCL_RSSI_DISCOUNT;
 
+		if (pSpectCh->weight == SAP_ACS_WEIGHT_MAX)
+			goto debug_info;
+
 		pSpectCh->weight =
 			SAPDFS_NORMALISE_1000 *
 			 (sapweight_rssi_count(sap_ctx, rssi,
@@ -1697,6 +1721,7 @@ static void sap_compute_spect_weight(tSapChSelSpectInfo *pSpectInfoParams,
 			pSpectCh->weight = SAP_ACS_WEIGHT_MAX;
 		pSpectCh->weight_copy = pSpectCh->weight;
 
+debug_info:
 		/* ------ Debug Info ------ */
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
 			  "In %s, Chan=%d Weight= %d rssiAgr=%d bssCount=%d",
@@ -1793,6 +1818,7 @@ static void set_ht80_chl_bit(chan_bonding_bitmap *channel_bitmap,
 	uint8_t i, j;
 	tSapSpectChInfo *spec_info;
 	int start_channel = 0;
+
 	channel_bitmap->chanBondingSet[0].startChannel =
 			acs_ht80_channels[0].chStartNum;
 	channel_bitmap->chanBondingSet[1].startChannel =
@@ -1930,12 +1956,16 @@ static void sap_sort_chl_weight_ht80(tSapChSelSpectInfo *pSpectInfoParams)
 		}
 	}
 
+	/*
+	 * Assign max weight(SAP_ACS_WEIGHT_MAX * 4) to 2.4 Ghz channels
+	 * and channel 165 as they cannot be part of a 80Mhz channel bonding.
+	 */
 	pSpectInfo = pSpectInfoParams->pSpectCh;
 	for (j = 0; j < pSpectInfoParams->numSpectChans; j++) {
-		if (CHANNEL_165 == pSpectInfo[j].chNum) {
+		if ((pSpectInfo[j].chNum >= CDS_CHANNEL_NUM(CHAN_ENUM_1) &&
+		     pSpectInfo[j].chNum <= CDS_CHANNEL_NUM(CHAN_ENUM_14)) ||
+		    (CHANNEL_165 == pSpectInfo[j].chNum))
 			pSpectInfo[j].weight = SAP_ACS_WEIGHT_MAX * 4;
-			break;
-		}
 	}
 
 	sap_sort_chl_weight(pSpectInfoParams);
@@ -2070,12 +2100,18 @@ static void sap_sort_chl_weight_vht160(tSapChSelSpectInfo *pSpectInfoParams)
 		pSpectInfo[j + minIdx].weight = acs_vht160_channels[i].weight;
 	}
 
+	/*
+	 * Assign max weight(SAP_ACS_WEIGHT_MAX * 8) to 2.4 Ghz channels
+	 * and channel 132-165 as they cannot be part of a 160Mhz channel
+	 * bonding.
+	 */
 	pSpectInfo = pSpectInfoParams->pSpectCh;
 	for (j = 0; j < pSpectInfoParams->numSpectChans; j++) {
-		if (CHANNEL_165 == pSpectInfo[j].chNum) {
+		if ((pSpectInfo[j].chNum >= CDS_CHANNEL_NUM(CHAN_ENUM_1) &&
+		     pSpectInfo[j].chNum <= CDS_CHANNEL_NUM(CHAN_ENUM_14)) ||
+		    (pSpectInfo[j].chNum >= CDS_CHANNEL_NUM(CHAN_ENUM_132) &&
+		     pSpectInfo[j].chNum <= CDS_CHANNEL_NUM(CHAN_ENUM_165)))
 			pSpectInfo[j].weight = SAP_ACS_WEIGHT_MAX * 8;
-			break;
-		}
 	}
 
 	sap_sort_chl_weight(pSpectInfoParams);
@@ -2392,11 +2428,11 @@ static void sap_sort_chl_weight_all(ptSapContext pSapCtx,
 #endif
 
 	/* For testing */
-	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
+	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO,
 		  "In %s, Sorted Spectrum Channels Weight", __func__);
 	pSpectCh = pSpectInfoParams->pSpectCh;
 	for (j = 0; j < (pSpectInfoParams->numSpectChans); j++) {
-		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
+		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO,
 			  "In %s, Channel=%d Weight= %d rssi=%d bssCount=%d",
 			  __func__, pSpectCh->chNum, pSpectCh->weight,
 			  pSpectCh->rssiAgr, pSpectCh->bssCount);
@@ -2405,33 +2441,19 @@ static void sap_sort_chl_weight_all(ptSapContext pSapCtx,
 
 }
 
-/*==========================================================================
-   FUNCTION    sap_filter_over_lap_ch
-
-   DESCRIPTION
-    return true if ch is acceptable.
-    This function will decide if we will filter over lap channel or not.
-
-   DEPENDENCIES
-    shall called after ap start.
-
-   PARAMETERS
-
-   IN
-    pSapCtx          : Pointer to ptSapContext.
-    chNum             : Filter channel number.
-
-   RETURN VALUE
-    bool          : true if channel is accepted.
-
-   SIDE EFFECTS
-   ============================================================================*/
-static bool sap_filter_over_lap_ch(ptSapContext pSapCtx, uint16_t chNum)
+/**
+ * sap_is_ch_non_overlap() - returns true if non-overlapping channel
+ * @sap_ctx: Sap context
+ * @ch: channel number
+ *
+ * Returns: true if non-overlapping (1, 6, 11) channel, false otherwise
+ */
+static bool sap_is_ch_non_overlap(ptSapContext sap_ctx, uint16_t ch)
 {
-	if (pSapCtx->enableOverLapCh)
+	if (sap_ctx->enableOverLapCh)
 		return true;
-	else if ((chNum == CHANNEL_1) ||
-		 (chNum == CHANNEL_6) || (chNum == CHANNEL_11))
+
+	if ((ch == CHANNEL_1) || (ch == CHANNEL_6) || (ch == CHANNEL_11))
 		return true;
 
 	return false;
@@ -2647,11 +2669,12 @@ uint8_t sap_select_channel(tHalHandle hal, ptSapContext sap_ctx,
 		}
 
 		/* Give preference to Non-overlap channels */
-		if (false == sap_filter_over_lap_ch(sap_ctx,
+		if (false == sap_is_ch_non_overlap(sap_ctx,
 				spect_info->pSpectCh[count].chNum)) {
 			QDF_TRACE(QDF_MODULE_ID_SAP,
 				QDF_TRACE_LEVEL_INFO_HIGH,
-				"sap_filter_over_lap_ch is false");
+				FL("ch: %d skipped as its overlapping ch"),
+				spect_info->pSpectCh[count].chNum);
 			continue;
 		}
 

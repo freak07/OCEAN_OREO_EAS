@@ -1072,10 +1072,12 @@ bool lim_process_fils_auth_frame2(tpAniSirGlobal mac_ctx,
 	if (!pe_session->fils_info)
 		return false;
 
-	dot11f_unpack_ie_rsn(mac_ctx,
+	if (dot11f_unpack_ie_rsn(mac_ctx,
 				&rx_auth_frm_body->rsn_ie.info[0],
 				rx_auth_frm_body->rsn_ie.length,
-				&dot11f_ie_rsn, 0);
+				&dot11f_ie_rsn, 0) != DOT11F_PARSE_SUCCESS) {
+		return false;
+	}
 
 	for (i = 0; i < dot11f_ie_rsn.pmkid_count; i++) {
 		if (qdf_mem_cmp(dot11f_ie_rsn.pmkid[i],
@@ -1131,6 +1133,12 @@ void lim_update_fils_config(tpPESession session,
 	csr_fils_info->akm = fils_config_info->akm_type;
 	csr_fils_info->auth = fils_config_info->auth_type;
 	csr_fils_info->sequence_number = fils_config_info->sequence_number;
+	if (fils_config_info->key_nai_length > FILS_MAX_KEYNAME_NAI_LENGTH) {
+		pe_err("Restricting the key_nai_length of  %d to max %d",
+		       fils_config_info->key_nai_length,
+		       FILS_MAX_KEYNAME_NAI_LENGTH);
+		fils_config_info->key_nai_length = FILS_MAX_KEYNAME_NAI_LENGTH;
+	}
 	csr_fils_info->keyname_nai_data =
 		qdf_mem_malloc(fils_config_info->key_nai_length);
 	if (!csr_fils_info->keyname_nai_data) {

@@ -845,7 +845,7 @@ uint16_t csr_check_concurrent_channel_overlap(tpAniSirGlobal mac_ctx,
 	}
 
 	sme_debug("intf_ch:%d sap_ch:%d cc_switch_mode:%d, dbs:%d",
-			intf_ch, sap_ch, cc_switch_mode, wma_is_dbs_enable());
+		intf_ch, sap_ch, cc_switch_mode, wma_is_dbs_enable());
 
 	if (intf_ch && sap_ch != intf_ch &&
 	    cc_switch_mode != QDF_MCC_TO_SCC_SWITCH_FORCE &&
@@ -1022,6 +1022,23 @@ bool csr_is_infra_connected(tpAniSirGlobal pMac)
 
 	return fRc;
 }
+
+uint8_t csr_get_connected_infra(tpAniSirGlobal mac_ctx)
+{
+	uint32_t i;
+	uint8_t connected_session = CSR_SESSION_ID_INVALID;
+
+	for (i = 0; i < CSR_ROAM_SESSION_MAX; i++) {
+		if (CSR_IS_SESSION_VALID(mac_ctx, i)
+		    && csr_is_conn_state_connected_infra(mac_ctx, i)) {
+			connected_session = i;
+			break;
+		}
+	}
+
+	return connected_session;
+}
+
 
 bool csr_is_concurrent_infra_connected(tpAniSirGlobal pMac)
 {
@@ -1510,7 +1527,7 @@ uint32_t csr_translate_to_wni_cfg_dot11_mode(tpAniSirGlobal pMac,
 		break;
 	default:
 		sme_warn("doesn't expect %d as csrDo11Mode", csrDot11Mode);
-		if (eCSR_BAND_24 == pMac->roam.configParam.eBand)
+		if (SIR_BAND_2_4_GHZ == pMac->roam.configParam.eBand)
 			ret = WNI_CFG_DOT11_MODE_11G;
 		else
 			ret = WNI_CFG_DOT11_MODE_11A;
@@ -1823,7 +1840,7 @@ bool csr_is_phy_mode_match(tpAniSirGlobal pMac, uint32_t phyMode,
 eCsrCfgDot11Mode csr_find_best_phy_mode(tpAniSirGlobal pMac, uint32_t phyMode)
 {
 	eCsrCfgDot11Mode cfgDot11ModeToUse;
-	eCsrBand eBand = pMac->roam.configParam.eBand;
+	tSirRFBand eBand = pMac->roam.configParam.eBand;
 
 	if ((0 == phyMode) ||
 	    (eCSR_DOT11_MODE_11ac & phyMode) ||
@@ -1839,7 +1856,7 @@ eCsrCfgDot11Mode csr_find_best_phy_mode(tpAniSirGlobal pMac, uint32_t phyMode)
 		if ((eCSR_DOT11_MODE_11n | eCSR_DOT11_MODE_11n_ONLY) & phyMode)
 			cfgDot11ModeToUse = eCSR_CFG_DOT11_MODE_11N;
 		else if (eCSR_DOT11_MODE_abg & phyMode) {
-			if (eCSR_BAND_24 != eBand)
+			if (SIR_BAND_2_4_GHZ != eBand)
 				cfgDot11ModeToUse = eCSR_CFG_DOT11_MODE_11A;
 			else
 				cfgDot11ModeToUse = eCSR_CFG_DOT11_MODE_11G;
@@ -3164,6 +3181,7 @@ static bool csr_lookup_pmkid_using_bssid(tpAniSirGlobal mac,
 {
 	uint32_t i;
 	tPmkidCacheInfo *session_pmk;
+
 	for (i = 0; i < session->NumPmkidCache; i++) {
 		session_pmk = &session->PmkidCacheInfo[i];
 		sme_debug("Matching BSSID: " MAC_ADDRESS_STR " to cached BSSID:"

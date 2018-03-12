@@ -64,6 +64,8 @@
 #define WEIGHT_OF_NON_PCL_CHANNELS 1
 #define WEIGHT_OF_DISALLOWED_CHANNELS 0
 
+#define MAX_MAC 2
+
 /**
  * enum hw_mode_ss_config - Possible spatial stream configuration
  * @SS_0x0: Unused Tx and Rx of MAC
@@ -616,6 +618,19 @@ struct cds_conc_connection_info {
 	bool          in_use;
 };
 
+/**
+ * struct connection_info - connection information
+ *
+ * @mac_id: The HW mac it is running
+ * @vdev_id: vdev id
+ * @channel: channel of the connection
+ */
+struct connection_info {
+	uint8_t mac_id;
+	uint8_t vdev_id;
+	uint8_t channel;
+};
+
 bool cds_is_connection_in_progress(uint8_t *session_id,
 				scan_reject_states *reason);
 void cds_dump_concurrency_info(void);
@@ -1020,4 +1035,21 @@ void cds_remove_dfs_passive_channels_from_pcl(uint8_t *pcl_channels,
  * Return: true or false
  */
 bool cds_is_valid_channel_for_channel_switch(uint8_t channel);
+
+/**
+ * cds_is_sta_connected_in_2g() - check if sta is connected in 2G
+ *
+ * This function loops through all sta adapters to check if any
+ * sta is connected in 2G
+ *
+ * Return: true for success and false for failure
+ */
+bool cds_is_sta_connected_in_2g(void);
+/**
+ * cds_get_connection_info() - Get info of all active connections
+ * @info: Pointer to connection info
+ *
+ * Return: Connection count
+ */
+uint32_t cds_get_connection_info(struct connection_info *info);
 #endif /* __CDS_CONCURRENCY_H */

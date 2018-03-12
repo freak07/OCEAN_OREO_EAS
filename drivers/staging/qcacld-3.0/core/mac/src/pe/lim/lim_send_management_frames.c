@@ -2070,7 +2070,8 @@ static QDF_STATUS lim_auth_tx_complete_cnf(tpAniSirGlobal mac_ctx,
 	uint16_t auth_ack_status;
 	uint16_t reason_code;
 
-	pe_debug("tx_complete= %d", tx_complete);
+	pe_debug("tx_complete = %d %s", tx_complete,
+		(tx_complete ? "success":"fail"));
 	if (tx_complete) {
 		mac_ctx->auth_ack_status = LIM_AUTH_ACK_RCD_SUCCESS;
 		auth_ack_status = ACKED;
@@ -2647,6 +2648,7 @@ lim_send_disassoc_mgmt_frame(tpAniSirGlobal pMac,
 	uint8_t txFlag = 0;
 	uint32_t val = 0;
 	uint8_t smeSessionId = 0;
+
 	if (NULL == psessionEntry) {
 		return;
 	}

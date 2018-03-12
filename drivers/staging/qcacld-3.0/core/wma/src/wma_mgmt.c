@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -1235,9 +1235,9 @@ QDF_STATUS wma_send_peer_assoc(tp_wma_handle wma,
 	    ) {
 		cmd->peer_flags |= WMI_PEER_NEED_PTK_4_WAY;
 		WMA_LOGD("Acquire set key wake lock for %d ms",
-			WMA_VDEV_SET_KEY_REQUEST_TIMEOUT);
+			WMA_VDEV_SET_KEY_WAKELOCK_TIMEOUT);
 		wma_acquire_wakelock(&intr->vdev_set_key_wakelock,
-			WMA_VDEV_SET_KEY_REQUEST_TIMEOUT);
+			WMA_VDEV_SET_KEY_WAKELOCK_TIMEOUT);
 	}
 	if (params->wpa_rsn >> 1)
 		cmd->peer_flags |= WMI_PEER_NEED_GTK_2_WAY;
@@ -1739,13 +1739,14 @@ static QDF_STATUS wma_setup_install_key_cmd(tp_wma_handle wma_handle,
 
 	status = wmi_unified_setup_install_key_cmd(wma_handle->wmi_handle,
 								&params);
-
-
 	if (!key_params->unicast) {
 		/* Its GTK release the wake lock */
 		WMA_LOGD("Release set key wake lock");
 		wma_release_wakelock(&iface->vdev_set_key_wakelock);
 	}
+	/* install key was requested */
+	if (iface)
+		iface->is_waiting_for_key = false;
 
 	return status;
 }
@@ -2659,6 +2660,7 @@ void wma_send_beacon(tp_wma_handle wma, tpSendbeaconParams bcn_info)
 				return;
 			}
 			wma->interfaces[vdev_id].vdev_up = true;
+			WMA_LOGD(FL("Setting vdev_up flag to true"));
 			wma_set_sap_keepalive(wma, vdev_id);
 			wma_set_vdev_mgmt_rate(wma, vdev_id);
 		}
@@ -2717,6 +2719,25 @@ void wma_beacon_miss_handler(tp_wma_handle wma, uint32_t vdev_id, int32_t rssi)
 }
 
 /**
+ * wma_get_status_str() - get string of tx status from firmware
+ * @status: tx status
+ *
+ * Return: converted string of tx status
+ */
+static const char *wma_get_status_str(uint32_t status)
+{
+	switch (status) {
+	default:
+		return "unknown";
+	CASE_RETURN_STRING(WMI_MGMT_TX_COMP_TYPE_COMPLETE_OK);
+	CASE_RETURN_STRING(WMI_MGMT_TX_COMP_TYPE_DISCARD);
+	CASE_RETURN_STRING(WMI_MGMT_TX_COMP_TYPE_INSPECT);
+	CASE_RETURN_STRING(WMI_MGMT_TX_COMP_TYPE_COMPLETE_NO_ACK);
+	CASE_RETURN_STRING(WMI_MGMT_TX_COMP_TYPE_MAX);
+	}
+}
+
+/**
  * wma_process_mgmt_tx_completion() - process mgmt completion
  * @wma_handle: wma handle
  * @desc_id: descriptor id
@@ -2740,7 +2761,8 @@ static int wma_process_mgmt_tx_completion(tp_wma_handle wma_handle,
 		return -EINVAL;
 	}
 
-	WMA_LOGD("%s: status: %d wmi_desc_id: %d", __func__, status, desc_id);
+	WMA_LOGD("%s: status: %s wmi_desc_id: %d", __func__,
+		wma_get_status_str(status), desc_id);
 
 	wmi_desc = (struct wmi_desc_t *)
 			(&wma_handle->wmi_desc_pool.array[desc_id]);
@@ -3094,7 +3116,6 @@ void wma_hidden_ssid_vdev_restart(tp_wma_handle wma_handle,
 			       hidden_ssid_restart_in_progress, 0);
 		wma_remove_vdev_req(wma_handle, pReq->sessionId,
 					WMA_TARGET_REQ_TYPE_VDEV_STOP);
-		return;
 	}
 }
 
@@ -3506,7 +3527,11 @@ static int wma_mgmt_rx_process(void *handle, uint8_t *data,
 		WMA_LOGE("Rx event is NULL");
 		return -EINVAL;
 	}
-
+	if (hdr->buf_len > param_tlvs->num_bufp) {
+		WMA_LOGE("Invalid length of frame hdr->buf_len:%u, param_tlvs->num_bufp:%u",
+			hdr->buf_len, param_tlvs->num_bufp);
+		return -EINVAL;
+	}
 	if (hdr->buf_len < sizeof(struct ieee80211_frame) ||
 		hdr->buf_len > data_len) {
 		limit_prints_invalid_len++;
@@ -3581,6 +3606,10 @@ static int wma_mgmt_rx_process(void *handle, uint8_t *data,
 					 rx_pkt->pkt_meta.mpdu_hdr_len;
 
 	rx_pkt->pkt_meta.roamCandidateInd = 0;
+
+	/* Copy per chain rssi to rx_pkt */
+	qdf_mem_copy(rx_pkt->pkt_meta.rssi_per_chain, hdr->rssi_ctl,
+				sizeof(rx_pkt->pkt_meta.rssi_per_chain));
 
 	/*
 	 * If the mpdu_data_len is greater than Max (2k), drop the frame

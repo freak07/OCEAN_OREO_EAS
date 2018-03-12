@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -75,6 +75,7 @@
 #define WMI_ROAM_SCAN_PSK_SIZE    32
 #endif
 #define WMI_NOISE_FLOOR_DBM_DEFAULT      (-96)
+#define WMI_INVALID_PER_CHAIN_RSSI       0x80
 #define WMI_MAC_IPV6_ADDR_LEN                            16
 #define WMI_OFFLOAD_DISABLE                         0
 #define WMI_OFFLOAD_ENABLE                          1
@@ -426,6 +427,24 @@ struct mac_ssid {
 } qdf_packed;
 
 /**
+ * enum wmi_bcn_tx_rate_code - beacon tx rate code
+ */
+enum wmi_bcn_tx_rate_code {
+	WMI_BCN_TX_RATE_CODE_1_M = 0x43,
+	WMI_BCN_TX_RATE_CODE_2_M = 0x42,
+	WMI_BCN_TX_RATE_CODE_5_5_M = 0x41,
+	WMI_BCN_TX_RATE_CODE_6_M = 0x03,
+	WMI_BCN_TX_RATE_CODE_9_M = 0x07,
+	WMI_BCN_TX_RATE_CODE_11M = 0x40,
+	WMI_BCN_TX_RATE_CODE_12_M = 0x02,
+	WMI_BCN_TX_RATE_CODE_18_M = 0x06,
+	WMI_BCN_TX_RATE_CODE_24_M = 0x01,
+	WMI_BCN_TX_RATE_CODE_36_M = 0x05,
+	WMI_BCN_TX_RATE_CODE_48_M = 0x00,
+	WMI_BCN_TX_RATE_CODE_54_M = 0x04,
+};
+
+/**
  * struct vdev_start_params - vdev start cmd parameter
  * @vdev_id: vdev id
  * @chan_freq: channel frequency
@@ -457,6 +476,7 @@ struct mac_ssid {
  * @dot11_mode: Phy mode (VHT20/VHT80...)
  * @disable_hw_ack: Disable hw ack if chan is dfs channel for cac
  * @channel_param: Channel params required by target.
+ * @bcn_tx_rate_code: Beacon tx rate code.
  */
 struct vdev_start_params {
 	uint8_t vdev_id;
@@ -487,6 +507,7 @@ struct vdev_start_params {
 	uint8_t disable_hw_ack;
 	struct channel_param channel;
 #endif
+	enum wmi_bcn_tx_rate_code bcn_tx_rate_code;
 	bool ldpc_rx_enabled;
 };
 
@@ -2440,6 +2461,24 @@ struct pno_scan_req_params {
 	uint8_t *voui;
 };
 
+/**
+ * struct nlo_mawc_params - Motion Aided Wireless Connectivity based
+ *                          Network List Offload configuration
+ * @vdev_id: VDEV ID on which the configuration needs to be applied
+ * @enable: flag to enable or disable
+ * @exp_backoff_ratio: ratio of exponential backoff
+ * @init_scan_interval: initial scan interval(msec)
+ * @max_scan_interval:  max scan interval(msec)
+ */
+struct nlo_mawc_params {
+	uint8_t vdev_id;
+	bool enable;
+	uint32_t exp_backoff_ratio;
+	uint32_t init_scan_interval;
+	uint32_t max_scan_interval;
+};
+
+
 #define WMI_WLAN_EXTSCAN_MAX_CHANNELS                 36
 #define WMI_WLAN_EXTSCAN_MAX_BUCKETS                  16
 #define WMI_WLAN_EXTSCAN_MAX_HOTLIST_APS              128
@@ -2894,6 +2933,45 @@ struct aggr_add_ts_param {
 	struct mac_tspec_ie tspec[WMI_QOS_NUM_AC_MAX];
 	QDF_STATUS status[WMI_QOS_NUM_AC_MAX];
 	uint8_t sessionId;
+};
+
+
+/**
+ * struct wlm_latency_level_param - WLM parameters
+ * @wlm_latency_level: wlm latency level to set
+ *  0 - normal, 1 - moderate, 2 - low, 3 - ultralow
+ * @wlm_latency_flags: wlm latency flags to set
+ *  |31  12|  11  |  10  |9    8|7    6|5    4|3    2|  1  |  0  |
+ *  +------+------+------+------+------+------+------+-----+-----+
+ *  | RSVD | SSLP | CSLP | RSVD | Roam | RSVD | DWLT | DFS | SUP |
+ *  +------+-------------+-------------+-------------------------+
+ *  |  WAL |      PS     |     Roam    |         Scan            |
+ *
+ *  bit 0: Avoid scan request from HLOS if setting
+ *  bit 1: Skip DFS channel SCAN if setting
+ *  bit 2-3: Define policy of dwell time/duration for each foreign channel
+ *     (b2 b3)
+ *     (0  0 ): Default scan dwell time
+ *     (0  1 ): Reserve
+ *     (1  0 ): Shrink off channel dwell time
+ *     (1  1 ): Reserve
+ *  bit 4-5: Reserve for scan
+ *  bit 6-7: Define roaming policy
+ *     (b6 b7)
+ *     (0  0 ): Default roaming behavior, allow roaming in all scenarios
+ *     (0  1 ): Disallow all roaming
+ *     (1  0 ): Allow roaming when final bmissed
+ *     (1  1 ): Reserve
+ *  bit 8-9: Reserve for roaming
+ *  bit 10: Disable css power collapse if setting
+ *  bit 11: Disable sys sleep if setting
+ *  bit 12-31: Reserve for future useage
+ * @vdev_id: vdev id
+ */
+struct wlm_latency_level_param {
+	uint16_t wlm_latency_level;
+	uint32_t wlm_latency_flags;
+	uint16_t vdev_id;
 };
 
 #define    WMI_MAX_FILTER_TEST_DATA_LEN       8
@@ -5161,6 +5239,7 @@ typedef enum {
 	wmi_ba_rsp_ssn_event_id,
 	wmi_aggr_state_trig_event_id,
 	wmi_roam_synch_event_id,
+	wmi_roam_synch_frame_event_id,
 	wmi_p2p_disc_event_id,
 	wmi_p2p_noa_event_id,
 	wmi_pdev_resume_event_id,
@@ -5219,6 +5298,7 @@ typedef enum {
 	wmi_tx_data_traffic_ctrl_event_id,
 	wmi_update_rcpi_event_id,
 	wmi_get_arp_stats_req_id,
+	wmi_sar_get_limits_event_id,
 
 	wmi_events_max,
 } wmi_conv_event_id;
@@ -7133,12 +7213,15 @@ struct encrypt_decrypt_req_params {
 
 #define MAX_SAR_LIMIT_ROWS_SUPPORTED 64
 /**
- * struct sar_limit_cmd_row - sar limts row
+ * struct sar_limit_cmd_row - sar limits row
  * @band_id: Optional param for frequency band
+ *           See %enum wmi_sar_band_id_flags for possible values
  * @chain_id: Optional param for antenna chain id
  * @mod_id: Optional param for modulation scheme
+ *          See %enum wmi_sar_mod_id_flags for possible values
  * @limit_value: Mandatory param providing power limits in steps of 0.5 dbm
  * @validity_bitmap: bitmap of valid optional params in sar_limit_cmd_row struct
+ *                   See WMI_SAR_*_VALID_MASK for possible values
  */
 struct sar_limit_cmd_row {
 	uint32_t band_id;
@@ -7149,8 +7232,9 @@ struct sar_limit_cmd_row {
 };
 
 /**
- * struct sar_limit_cmd_params - sar limts params
+ * struct sar_limit_cmd_params - sar limits params
  * @sar_enable: flag to enable SAR
+ *              See %enum wmi_sar_feature_state_flags for possible values
  * @num_limit_rows: number of items in sar_limits
  * @commit_limits: indicates firmware to start apply new SAR values
  * @sar_limit_row_list: pointer to array of sar limit rows
@@ -7160,6 +7244,38 @@ struct sar_limit_cmd_params {
 	uint32_t num_limit_rows;
 	uint32_t commit_limits;
 	struct sar_limit_cmd_row *sar_limit_row_list;
+};
+
+/**
+ * struct sar_limit_event_row - sar limits row
+ * @band_id: Frequency band.
+ *           See %enum wmi_sar_band_id_flags for possible values
+ * @chain_id: Chain id
+ * @mod_id: Modulation scheme
+ *          See %enum wmi_sar_mod_id_flags for possible values
+ * @limit_value: Power limits in steps of 0.5 dbm that is currently active for
+ *     the given @band_id, @chain_id, and @mod_id
+ */
+struct sar_limit_event_row {
+	uint32_t band_id;
+	uint32_t chain_id;
+	uint32_t mod_id;
+	uint32_t limit_value;
+};
+
+/**
+ * struct sar_limit_event - sar limits params
+ * @sar_enable: Current status of SAR enablement.
+ *              See %enum wmi_sar_feature_state_flags for possible values
+ * @num_limit_rows: number of items in sar_limits
+ * @sar_limit_row: array of sar limit rows. Only @num_limit_rows
+ *                 should be considered valid.
+ */
+struct sar_limit_event {
+	uint32_t sar_enable;
+	uint32_t num_limit_rows;
+	struct sar_limit_event_row
+			sar_limit_row[MAX_SAR_LIMIT_ROWS_SUPPORTED];
 };
 
 /**
@@ -7353,12 +7469,22 @@ struct wmi_action_oui {
  * @flag: enable/disable stats
  * @pkt_type: type of packet(1 - arp)
  * @ip_addr: subnet ipv4 address in case of encrypted packets
+ * @pkt_type_bitmap: pkt bitmap
+ * @tcp_src_port: tcp src port for pkt tracking
+ * @tcp_dst_port: tcp dst port for pkt tracking
+ * @icmp_ipv4: target ipv4 address to track ping packets
+ * @reserved: reserved
  */
 struct set_arp_stats {
 	uint32_t vdev_id;
 	uint8_t flag;
 	uint8_t pkt_type;
 	uint32_t ip_addr;
+	uint32_t pkt_type_bitmap;
+	uint32_t tcp_src_port;
+	uint32_t tcp_dst_port;
+	uint32_t icmp_ipv4;
+	uint32_t reserved;
 };
 
 /**
@@ -7404,5 +7530,24 @@ struct wmi_limit_off_chan_param {
 	uint32_t rest_time;
 	bool skip_dfs_chans;
 };
+
+/**
+ * struct wmi_mawc_roam_params - Motion Aided wireless connectivity params
+ * @vdev_id: VDEV on which the parameters should be applied
+ * @enable: MAWC roaming feature enable/disable
+ * @traffic_load_threshold: Traffic threshold in kBps for MAWC roaming
+ * @best_ap_rssi_threshold: AP RSSI Threshold for MAWC roaming
+ * @rssi_stationary_high_adjust: High RSSI adjustment value to supress scan
+ * @rssi_stationary_low_adjust: Low RSSI adjustment value to supress scan
+ */
+struct wmi_mawc_roam_params {
+	uint8_t vdev_id;
+	bool enable;
+	uint32_t traffic_load_threshold;
+	uint32_t best_ap_rssi_threshold;
+	uint8_t rssi_stationary_high_adjust;
+	uint8_t rssi_stationary_low_adjust;
+};
+
 #endif /* _WMI_UNIFIED_PARAM_H_ */
 

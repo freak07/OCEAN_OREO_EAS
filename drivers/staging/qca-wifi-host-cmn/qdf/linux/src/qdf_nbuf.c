@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -30,6 +30,7 @@
  * QCA driver framework(QDF) network buffer management APIs
  */
 
+#include <linux/hashtable.h>
 #include <linux/kernel.h>
 #include <linux/version.h>
 #include <linux/skbuff.h>
@@ -299,14 +300,20 @@ struct sk_buff *__qdf_nbuf_alloc(qdf_device_t osdev, size_t size, int reserve,
 
 	skb = __netdev_alloc_skb(NULL, size, flags);
 
+	if (skb)
+		goto skb_alloc;
+
+	skb = pld_nbuf_pre_alloc(size);
+
 	if (!skb) {
-		pr_info("ERROR:NBUF alloc failed\n");
+		pr_err_ratelimited("ERROR:NBUF alloc failed, size = %zu\n",
+				   size);
 		__qdf_nbuf_start_replenish_timer();
 		return NULL;
-	} else {
-		__qdf_nbuf_stop_replenish_timer();
 	}
 
+skb_alloc:
+	__qdf_nbuf_stop_replenish_timer();
 	memset(skb->cb, 0x0, sizeof(skb->cb));
 
 	/*
@@ -345,12 +352,313 @@ qdf_export_symbol(__qdf_nbuf_alloc);
  */
 void __qdf_nbuf_free(struct sk_buff *skb)
 {
+	if (pld_nbuf_pre_alloc_free(skb))
+		return;
+
 	if (nbuf_free_cb)
 		nbuf_free_cb(skb);
 	else
 		dev_kfree_skb_any(skb);
 }
 qdf_export_symbol(__qdf_nbuf_free);
+
+#ifdef MEMORY_DEBUG
+enum qdf_nbuf_event_type {
+	QDF_NBUF_ALLOC,
+	QDF_NBUF_FREE,
+	QDF_NBUF_MAP,
+	QDF_NBUF_UNMAP,
+};
+
+struct qdf_nbuf_event {
+	qdf_nbuf_t nbuf;
+	const char *file;
+	uint32_t line;
+	enum qdf_nbuf_event_type type;
+	uint64_t timestamp;
+};
+
+#define QDF_NBUF_HISTORY_SIZE 4096
+static qdf_atomic_t qdf_nbuf_history_index;
+static struct qdf_nbuf_event qdf_nbuf_history[QDF_NBUF_HISTORY_SIZE];
+
+static int32_t qdf_nbuf_circular_index_next(qdf_atomic_t *index, int size)
+{
+	int32_t next = qdf_atomic_inc_return(index);
+
+	if (next == size)
+		qdf_atomic_sub(size, index);
+
+	return next % size;
+}
+
+static void
+qdf_nbuf_history_add(qdf_nbuf_t nbuf, const char *file, uint32_t line,
+		     enum qdf_nbuf_event_type type)
+{
+	int32_t idx = qdf_nbuf_circular_index_next(&qdf_nbuf_history_index,
+						   QDF_NBUF_HISTORY_SIZE);
+	struct qdf_nbuf_event *event = &qdf_nbuf_history[idx];
+
+	event->nbuf = nbuf;
+	event->file = file;
+	event->line = line;
+	event->type = type;
+	event->timestamp = qdf_get_log_timestamp();
+}
+
+#define QDF_NBUF_MAP_HT_BITS 10 /* 1024 buckets */
+static DECLARE_HASHTABLE(qdf_nbuf_map_ht, QDF_NBUF_MAP_HT_BITS);
+static qdf_spinlock_t qdf_nbuf_map_lock;
+
+struct qdf_nbuf_map_metadata {
+	struct hlist_node node;
+	qdf_nbuf_t nbuf;
+	const char *file;
+	uint32_t line;
+};
+
+static void qdf_nbuf_map_tracking_init(void)
+{
+	hash_init(qdf_nbuf_map_ht);
+	qdf_spinlock_create(&qdf_nbuf_map_lock);
+}
+
+void qdf_nbuf_map_check_for_leaks(void)
+{
+	struct qdf_nbuf_map_metadata *meta;
+	int bucket;
+	uint32_t count = 0;
+	bool is_empty;
+
+	qdf_spin_lock_irqsave(&qdf_nbuf_map_lock);
+	is_empty = hash_empty(qdf_nbuf_map_ht);
+	qdf_spin_unlock_irqrestore(&qdf_nbuf_map_lock);
+
+	if (is_empty)
+		return;
+
+	qdf_err("Nbuf map without unmap events detected!");
+	qdf_err("------------------------------------------------------------");
+
+	/* Hold the lock for the entire iteration for safe list/meta access. We
+	 * are explicitly preferring the chance to watchdog on the print, over
+	 * the posibility of invalid list/memory access. Since we are going to
+	 * panic anyway, the worst case is loading up the crash dump to find out
+	 * what was in the hash table.
+	 */
+	qdf_spin_lock_irqsave(&qdf_nbuf_map_lock);
+	hash_for_each(qdf_nbuf_map_ht, bucket, meta, node) {
+		count++;
+		qdf_err("0x%pk @ %s:%u",
+			meta->nbuf, kbasename(meta->file), meta->line);
+	}
+	qdf_spin_unlock_irqrestore(&qdf_nbuf_map_lock);
+
+	panic("%u fatal nbuf map without unmap events detected!", count);
+}
+
+static void qdf_nbuf_map_tracking_deinit(void)
+{
+	qdf_nbuf_map_check_for_leaks();
+	qdf_spinlock_destroy(&qdf_nbuf_map_lock);
+}
+
+static struct qdf_nbuf_map_metadata *qdf_nbuf_meta_get(qdf_nbuf_t nbuf)
+{
+	struct qdf_nbuf_map_metadata *meta;
+
+	hash_for_each_possible(qdf_nbuf_map_ht, meta, node, (size_t)nbuf) {
+		if (meta->nbuf == nbuf)
+			return meta;
+	}
+
+	return NULL;
+}
+
+static QDF_STATUS
+qdf_nbuf_track_map(qdf_nbuf_t nbuf, const char *file, uint32_t line)
+{
+	struct qdf_nbuf_map_metadata *meta;
+
+	QDF_BUG(nbuf);
+	if (!nbuf) {
+		qdf_err("Cannot map null nbuf");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	qdf_spin_lock_irqsave(&qdf_nbuf_map_lock);
+	meta = qdf_nbuf_meta_get(nbuf);
+	qdf_spin_unlock_irqrestore(&qdf_nbuf_map_lock);
+	if (meta)
+		panic("Double nbuf map detected @ %s:%u",
+		      kbasename(file), line);
+
+	meta = qdf_mem_malloc(sizeof(*meta));
+	if (!meta) {
+		qdf_err("Failed to allocate nbuf map tracking metadata");
+		return QDF_STATUS_E_NOMEM;
+	}
+
+	meta->nbuf = nbuf;
+	meta->file = file;
+	meta->line = line;
+
+	qdf_spin_lock_irqsave(&qdf_nbuf_map_lock);
+	hash_add(qdf_nbuf_map_ht, &meta->node, (size_t)nbuf);
+	qdf_spin_unlock_irqrestore(&qdf_nbuf_map_lock);
+
+	qdf_nbuf_history_add(nbuf, file, line, QDF_NBUF_MAP);
+
+	return QDF_STATUS_SUCCESS;
+}
+
+static void
+qdf_nbuf_untrack_map(qdf_nbuf_t nbuf, const char *file, uint32_t line)
+{
+	struct qdf_nbuf_map_metadata *meta;
+
+	QDF_BUG(nbuf);
+	if (!nbuf) {
+		qdf_err("Cannot unmap null nbuf");
+		return;
+	}
+
+	qdf_spin_lock_irqsave(&qdf_nbuf_map_lock);
+	meta = qdf_nbuf_meta_get(nbuf);
+
+	if (!meta)
+		panic("Double nbuf unmap or unmap without map detected @%s:%u",
+		      kbasename(file), line);
+
+	hash_del(&meta->node);
+	qdf_spin_unlock_irqrestore(&qdf_nbuf_map_lock);
+
+	qdf_mem_free(meta);
+
+	qdf_nbuf_history_add(nbuf, file, line, QDF_NBUF_UNMAP);
+}
+
+QDF_STATUS qdf_nbuf_map_debug(qdf_device_t osdev,
+			      qdf_nbuf_t buf,
+			      qdf_dma_dir_t dir,
+			      const char *file,
+			      uint32_t line)
+{
+	QDF_STATUS status;
+
+	status = qdf_nbuf_track_map(buf, file, line);
+	if (QDF_IS_STATUS_ERROR(status))
+		return status;
+
+	status = __qdf_nbuf_map(osdev, buf, dir);
+	if (QDF_IS_STATUS_ERROR(status))
+		qdf_nbuf_untrack_map(buf, file, line);
+
+	return status;
+}
+
+void qdf_nbuf_unmap_debug(qdf_device_t osdev,
+			  qdf_nbuf_t buf,
+			  qdf_dma_dir_t dir,
+			  const char *file,
+			  uint32_t line)
+{
+	qdf_nbuf_untrack_map(buf, file, line);
+	__qdf_nbuf_unmap_single(osdev, buf, dir);
+}
+
+QDF_STATUS qdf_nbuf_map_single_debug(qdf_device_t osdev,
+				     qdf_nbuf_t buf,
+				     qdf_dma_dir_t dir,
+				     const char *file,
+				     uint32_t line)
+{
+	QDF_STATUS status;
+
+	status = qdf_nbuf_track_map(buf, file, line);
+	if (QDF_IS_STATUS_ERROR(status))
+		return status;
+
+	status = __qdf_nbuf_map_single(osdev, buf, dir);
+	if (QDF_IS_STATUS_ERROR(status))
+		qdf_nbuf_untrack_map(buf, file, line);
+
+	return status;
+}
+
+void qdf_nbuf_unmap_single_debug(qdf_device_t osdev,
+				 qdf_nbuf_t buf,
+				 qdf_dma_dir_t dir,
+				 const char *file,
+				 uint32_t line)
+{
+	qdf_nbuf_untrack_map(buf, file, line);
+	__qdf_nbuf_unmap_single(osdev, buf, dir);
+}
+
+QDF_STATUS qdf_nbuf_map_nbytes_debug(qdf_device_t osdev,
+				     qdf_nbuf_t buf,
+				     qdf_dma_dir_t dir,
+				     int nbytes,
+				     const char *file,
+				     uint32_t line)
+{
+	QDF_STATUS status;
+
+	status = qdf_nbuf_track_map(buf, file, line);
+	if (QDF_IS_STATUS_ERROR(status))
+		return status;
+
+	status = __qdf_nbuf_map_nbytes(osdev, buf, dir, nbytes);
+	if (QDF_IS_STATUS_ERROR(status))
+		qdf_nbuf_untrack_map(buf, file, line);
+
+	return status;
+}
+
+void qdf_nbuf_unmap_nbytes_debug(qdf_device_t osdev,
+				 qdf_nbuf_t buf,
+				 qdf_dma_dir_t dir,
+				 int nbytes,
+				 const char *file,
+				 uint32_t line)
+{
+	qdf_nbuf_untrack_map(buf, file, line);
+	__qdf_nbuf_unmap_nbytes(osdev, buf, dir, nbytes);
+}
+
+QDF_STATUS qdf_nbuf_map_nbytes_single_debug(qdf_device_t osdev,
+					    qdf_nbuf_t buf,
+					    qdf_dma_dir_t dir,
+					    int nbytes,
+					    const char *file,
+					    uint32_t line)
+{
+	QDF_STATUS status;
+
+	status = qdf_nbuf_track_map(buf, file, line);
+	if (QDF_IS_STATUS_ERROR(status))
+		return status;
+
+	status = __qdf_nbuf_map_nbytes_single(osdev, buf, dir, nbytes);
+	if (QDF_IS_STATUS_ERROR(status))
+		qdf_nbuf_untrack_map(buf, file, line);
+
+	return status;
+}
+
+void qdf_nbuf_unmap_nbytes_single_debug(qdf_device_t osdev,
+					qdf_nbuf_t buf,
+					qdf_dma_dir_t dir,
+					int nbytes,
+					const char *file,
+					uint32_t line)
+{
+	qdf_nbuf_untrack_map(buf, file, line);
+	__qdf_nbuf_unmap_nbytes_single(osdev, buf, dir, nbytes);
+}
+#endif /* MEMORY_DEBUG */
 
 /**
  * __qdf_nbuf_map() - map a buffer to local bus address space
@@ -1014,6 +1322,267 @@ uint32_t  __qdf_nbuf_get_arp_tgt_ip(uint8_t *data)
 }
 
 /**
+ * __qdf_nbuf_get_dns_domain_name() - get dns domain name
+ * @data: Pointer to network data buffer
+ * @len: length to copy
+ *
+ * This api is for dns domain name
+ *
+ * Return: dns domain name.
+ */
+uint8_t *__qdf_nbuf_get_dns_domain_name(uint8_t *data, uint32_t len)
+{
+	uint8_t *domain_name;
+
+	domain_name = (uint8_t *)
+			(data + QDF_NBUF_PKT_DNS_NAME_OVER_UDP_OFFSET);
+	return domain_name;
+}
+
+
+/**
+ * __qdf_nbuf_data_is_dns_query() - check if skb data is a dns query
+ * @data: Pointer to network data buffer
+ *
+ * This api is for dns query packet.
+ *
+ * Return: true if packet is dns query packet.
+ *	   false otherwise.
+ */
+bool __qdf_nbuf_data_is_dns_query(uint8_t *data)
+{
+	uint16_t op_code;
+	uint16_t tgt_port;
+
+	tgt_port = (uint16_t)(*(uint16_t *)(data +
+				QDF_NBUF_PKT_DNS_DST_PORT_OFFSET));
+	/* Standard DNS query always happen on Dest Port 53. */
+	if (tgt_port == QDF_SWAP_U16(QDF_NBUF_PKT_DNS_STANDARD_PORT)) {
+		op_code = (uint16_t)(*(uint16_t *)(data +
+				QDF_NBUF_PKT_DNS_OVER_UDP_OPCODE_OFFSET));
+		if ((QDF_SWAP_U16(op_code) & QDF_NBUF_PKT_DNSOP_BITMAP) ==
+				QDF_NBUF_PKT_DNSOP_STANDARD_QUERY)
+			return true;
+		else
+			return false;
+	} else
+		return false;
+}
+
+/**
+ * __qdf_nbuf_data_is_dns_response() - check if skb data is a dns response
+ * @data: Pointer to network data buffer
+ *
+ * This api is for dns query response.
+ *
+ * Return: true if packet is dns response packet.
+ *	   false otherwise.
+ */
+bool __qdf_nbuf_data_is_dns_response(uint8_t *data)
+{
+	uint16_t op_code;
+	uint16_t src_port;
+
+	src_port = (uint16_t)(*(uint16_t *)(data +
+				QDF_NBUF_PKT_DNS_SRC_PORT_OFFSET));
+	/* Standard DNS response always comes on Src Port 53. */
+	if (src_port == QDF_SWAP_U16(QDF_NBUF_PKT_DNS_STANDARD_PORT)) {
+		op_code = (uint16_t)(*(uint16_t *)(data +
+				QDF_NBUF_PKT_DNS_OVER_UDP_OPCODE_OFFSET));
+
+		if ((QDF_SWAP_U16(op_code) & QDF_NBUF_PKT_DNSOP_BITMAP) ==
+				QDF_NBUF_PKT_DNSOP_STANDARD_RESPONSE)
+			return true;
+		else
+			return false;
+	} else
+		return false;
+}
+
+/**
+ * __qdf_nbuf_data_is_tcp_syn() - check if skb data is a tcp syn
+ * @data: Pointer to network data buffer
+ *
+ * This api is for tcp syn packet.
+ *
+ * Return: true if packet is tcp syn packet.
+ *	   false otherwise.
+ */
+bool __qdf_nbuf_data_is_tcp_syn(uint8_t *data)
+{
+	uint8_t op_code;
+
+	op_code = (uint8_t)(*(uint8_t *)(data +
+				QDF_NBUF_PKT_TCP_OPCODE_OFFSET));
+
+	if (op_code == QDF_NBUF_PKT_TCPOP_SYN)
+		return true;
+	else
+		return false;
+}
+
+/**
+ * __qdf_nbuf_data_is_tcp_syn_ack() - check if skb data is a tcp syn ack
+ * @data: Pointer to network data buffer
+ *
+ * This api is for tcp syn ack packet.
+ *
+ * Return: true if packet is tcp syn ack packet.
+ *	   false otherwise.
+ */
+bool __qdf_nbuf_data_is_tcp_syn_ack(uint8_t *data)
+{
+	uint8_t op_code;
+
+	op_code = (uint8_t)(*(uint8_t *)(data +
+				QDF_NBUF_PKT_TCP_OPCODE_OFFSET));
+
+	if (op_code == QDF_NBUF_PKT_TCPOP_SYN_ACK)
+		return true;
+	else
+		return false;
+}
+
+/**
+ * __qdf_nbuf_data_is_tcp_ack() - check if skb data is a tcp ack
+ * @data: Pointer to network data buffer
+ *
+ * This api is for tcp ack packet.
+ *
+ * Return: true if packet is tcp ack packet.
+ *	   false otherwise.
+ */
+bool __qdf_nbuf_data_is_tcp_ack(uint8_t *data)
+{
+	uint8_t op_code;
+
+	op_code = (uint8_t)(*(uint8_t *)(data +
+				QDF_NBUF_PKT_TCP_OPCODE_OFFSET));
+
+	if (op_code == QDF_NBUF_PKT_TCPOP_ACK)
+		return true;
+	else
+		return false;
+}
+
+/**
+ * __qdf_nbuf_data_get_tcp_src_port() - get tcp src port
+ * @data: Pointer to network data buffer
+ *
+ * This api is for tcp packet.
+ *
+ * Return: tcp source port value.
+ */
+uint16_t __qdf_nbuf_data_get_tcp_src_port(uint8_t *data)
+{
+	uint16_t src_port;
+
+	src_port = (uint16_t)(*(uint16_t *)(data +
+				QDF_NBUF_PKT_TCP_SRC_PORT_OFFSET));
+
+	return src_port;
+}
+
+/**
+ * __qdf_nbuf_data_get_tcp_dst_port() - get tcp dst port
+ * @data: Pointer to network data buffer
+ *
+ * This api is for tcp packet.
+ *
+ * Return: tcp destination port value.
+ */
+uint16_t __qdf_nbuf_data_get_tcp_dst_port(uint8_t *data)
+{
+	uint16_t tgt_port;
+
+	tgt_port = (uint16_t)(*(uint16_t *)(data +
+				QDF_NBUF_PKT_TCP_DST_PORT_OFFSET));
+
+	return tgt_port;
+}
+
+/**
+ * __qdf_nbuf_data_is_icmpv4_req() - check if skb data is a icmpv4 request
+ * @data: Pointer to network data buffer
+ *
+ * This api is for ipv4 req packet.
+ *
+ * Return: true if packet is icmpv4 request
+ *	   false otherwise.
+ */
+bool __qdf_nbuf_data_is_icmpv4_req(uint8_t *data)
+{
+	uint8_t op_code;
+
+	op_code = (uint8_t)(*(uint8_t *)(data +
+				QDF_NBUF_PKT_ICMPv4_OPCODE_OFFSET));
+
+	if (op_code == QDF_NBUF_PKT_ICMPv4OP_REQ)
+		return true;
+	else
+		return false;
+}
+
+/**
+ * __qdf_nbuf_data_is_icmpv4_rsp() - check if skb data is a icmpv4 res
+ * @data: Pointer to network data buffer
+ *
+ * This api is for ipv4 res packet.
+ *
+ * Return: true if packet is icmpv4 response
+ *	   false otherwise.
+ */
+bool __qdf_nbuf_data_is_icmpv4_rsp(uint8_t *data)
+{
+	uint8_t op_code;
+
+	op_code = (uint8_t)(*(uint8_t *)(data +
+				QDF_NBUF_PKT_ICMPv4_OPCODE_OFFSET));
+
+	if (op_code == QDF_NBUF_PKT_ICMPv4OP_REPLY)
+		return true;
+	else
+		return false;
+}
+
+/**
+ * __qdf_nbuf_data_get_icmpv4_src_ip() - get icmpv4 src IP
+ * @data: Pointer to network data buffer
+ *
+ * This api is for ipv4 packet.
+ *
+ * Return: icmpv4 packet source IP value.
+ */
+uint32_t __qdf_nbuf_get_icmpv4_src_ip(uint8_t *data)
+{
+	uint32_t src_ip;
+
+	src_ip = (uint32_t)(*(uint32_t *)(data +
+				QDF_NBUF_PKT_ICMPv4_SRC_IP_OFFSET));
+
+	return src_ip;
+}
+
+/**
+ * __qdf_nbuf_data_get_icmpv4_tgt_ip() - get icmpv4 target IP
+ * @data: Pointer to network data buffer
+ *
+ * This api is for ipv4 packet.
+ *
+ * Return: icmpv4 packet target IP value.
+ */
+uint32_t __qdf_nbuf_get_icmpv4_tgt_ip(uint8_t *data)
+{
+	uint32_t tgt_ip;
+
+	tgt_ip = (uint32_t)(*(uint32_t *)(data +
+				QDF_NBUF_PKT_ICMPv4_TGT_IP_OFFSET));
+
+	return tgt_ip;
+}
+
+
+/**
  * __qdf_nbuf_data_is_ipv6_pkt() - check if it is IPV6 packet.
  * @data: Pointer to IPV6 packet data buffer
  *
@@ -1277,30 +1846,6 @@ static uint32_t qdf_net_buf_track_max_free;
 static uint32_t qdf_net_buf_track_max_allocated;
 
 /**
- * struct qdf_nbuf_free_track_t - Network buffer free track structure
- * @p_next: Pointer to next
- * @net_buf: Pointer to network buffer
- * @file_name: File name
- * @line_num: Line number
- * @time: Time stamp
- */
-struct qdf_nbuf_free_track_t {
-	struct qdf_nbuf_track_t *p_next;
-	qdf_nbuf_t net_buf;
-	uint8_t *file_name;
-	uint32_t line_num;
-	uint64_t time;
-};
-
-struct qdf_nbuf_free_record_t {
-	struct qdf_nbuf_free_track_t gp_qdf_netbuf_free_tbl[
-					QDF_NET_BUF_TRACK_MAX_SIZE];
-	qdf_atomic_t count;
-};
-
-static struct qdf_nbuf_free_record_t qdf_nbuf_free_record_info;
-
-/**
  * update_max_used() - update qdf_net_buf_track_max_used tracking variable
  *
  * tracks the max number of network buffers that the wlan driver was tracking
@@ -1550,6 +2095,9 @@ void qdf_net_buf_debug_init(void)
 {
 	uint32_t i;
 
+	qdf_atomic_set(&qdf_nbuf_history_index, -1);
+
+	qdf_nbuf_map_tracking_init();
 	qdf_nbuf_track_memory_manager_create();
 
 	for (i = 0; i < QDF_NET_BUF_TRACK_MAX_SIZE; i++) {
@@ -1604,55 +2152,11 @@ void qdf_net_buf_debug_exit(void)
 	}
 
 	qdf_nbuf_track_memory_manager_destroy();
+	qdf_nbuf_map_tracking_deinit();
 
 	qdf_net_buf_handle_skb_leak(count);
 }
 qdf_export_symbol(qdf_net_buf_debug_exit);
-
-/**
- * qdf_nbuf_free_dbg_get_index() - Get the next record index
- * @tbl_index: atomic index variable to increment
- * @size: array size of the circular buffer
- *
- * Return: array index
- */
-static int qdf_nbuf_free_dbg_get_index(qdf_atomic_t *tbl_index, int size)
-{
-	int index = qdf_atomic_inc_return(tbl_index);
-
-	if (index == size)
-		qdf_atomic_sub(size, tbl_index);
-
-	while (index >= size)
-		index -= size;
-
-	return index;
-}
-
-/**
- * qdf_netbuf_free_debug_add() - Add netbuff free info to the debug
- * @netbuf: pointer to network buffer
- * @file_name: fie name from where net buff is freed
- * @line_num: line number
- *
- * Return: none
- */
-void qdf_netbuf_free_debug_add(qdf_nbuf_t net_buf,
-			       uint8_t *file_name, uint32_t line_num)
-{
-	struct qdf_nbuf_free_track_t *p_node;
-	uint16_t index;
-
-	index = qdf_nbuf_free_dbg_get_index(&qdf_nbuf_free_record_info.count,
-					  QDF_NET_BUF_TRACK_MAX_SIZE);
-
-	p_node = &qdf_nbuf_free_record_info.gp_qdf_netbuf_free_tbl[index];
-	p_node->net_buf = net_buf;
-	p_node->file_name = file_name;
-	p_node->line_num = line_num;
-	p_node->time = qdf_get_log_timestamp();
-}
-EXPORT_SYMBOL(qdf_netbuf_free_debug_add);
 
 /**
  * qdf_net_buf_debug_hash() - hash network buffer pointer
@@ -1842,6 +2346,40 @@ void qdf_net_buf_debug_release_skb(qdf_nbuf_t net_buf)
 	qdf_net_buf_debug_delete_node(net_buf);
 }
 qdf_export_symbol(qdf_net_buf_debug_release_skb);
+
+qdf_nbuf_t qdf_nbuf_alloc_debug(qdf_device_t osdev, qdf_size_t size,
+				int reserve, int align, int prio,
+				uint8_t *file, uint32_t line)
+{
+	qdf_nbuf_t nbuf;
+
+	nbuf = __qdf_nbuf_alloc(osdev, size, reserve, align, prio);
+
+	/* Store SKB in internal QDF tracking table */
+	if (qdf_likely(nbuf)) {
+		qdf_net_buf_debug_add_node(nbuf, size, file, line);
+		qdf_nbuf_history_add(nbuf, file, line, QDF_NBUF_ALLOC);
+	}
+
+	return nbuf;
+}
+qdf_export_symbol(qdf_nbuf_alloc_debug);
+
+void qdf_nbuf_free_debug(qdf_nbuf_t nbuf, uint8_t *file, uint32_t line)
+{
+	if (qdf_nbuf_is_tso(nbuf) && qdf_nbuf_get_users(nbuf) > 1)
+		goto free_buf;
+
+	/* Remove SKB from internal QDF tracking table */
+	if (qdf_likely(nbuf)) {
+		qdf_net_buf_debug_delete_node(nbuf);
+		qdf_nbuf_history_add(nbuf, file, line, QDF_NBUF_FREE);
+	}
+
+free_buf:
+	__qdf_nbuf_free(nbuf);
+}
+qdf_export_symbol(qdf_nbuf_free_debug);
 
 #endif /*MEMORY_DEBUG */
 #if defined(FEATURE_TSO)
@@ -2391,14 +2929,14 @@ qdf_export_symbol(__qdf_nbuf_get_tso_num_seg);
 
 struct sk_buff *__qdf_nbuf_inc_users(struct sk_buff *skb)
 {
-	atomic_inc(&skb->users);
+	qdf_nbuf_users_inc(&skb->users);
 	return skb;
 }
 qdf_export_symbol(__qdf_nbuf_inc_users);
 
 int __qdf_nbuf_get_users(struct sk_buff *skb)
 {
-	return atomic_read(&skb->users);
+	return qdf_nbuf_users_read(&skb->users);
 }
 qdf_export_symbol(__qdf_nbuf_get_users);
 

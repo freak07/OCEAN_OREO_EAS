@@ -791,7 +791,7 @@ QDF_STATUS hdd_chan_change_notify(hdd_adapter_t *adapter,
 
 	freq = cds_chan_to_freq(chan_change.chan);
 
-	chan = __ieee80211_get_channel(adapter->wdev.wiphy, freq);
+	chan = ieee80211_get_channel(adapter->wdev.wiphy, freq);
 
 	if (!chan) {
 		hdd_err("Invalid input frequency for channel conversion");
@@ -1408,9 +1408,15 @@ static int hdd_convert_dot11mode_from_phymode(int phymode)
 static void hdd_fill_station_info(hdd_adapter_t *pHostapdAdapter,
 				  tSap_StationAssocReassocCompleteEvent *event)
 {
-	hdd_station_info_t *stainfo = &pHostapdAdapter->aStaInfo[event->staId];
+	hdd_station_info_t *stainfo;
 	uint8_t i = 0;
 
+	if (event->staId >= WLAN_MAX_STA_COUNT) {
+		hdd_err("invalid sta id");
+		return;
+	}
+
+	stainfo = &pHostapdAdapter->aStaInfo[event->staId];
 	if (!stainfo) {
 		hdd_err("invalid stainfo");
 		return;
@@ -1445,15 +1451,34 @@ static void hdd_fill_station_info(hdd_adapter_t *pHostapdAdapter,
 	/* expect max_phy_rate report in kbps */
 	stainfo->max_phy_rate *= 100;
 
-	if (event->vht_caps.present)
+	if (event->vht_caps.present) {
+		stainfo->vht_present = true;
 		hdd_copy_vht_caps(&stainfo->vht_caps, &event->vht_caps);
-	if (event->ht_caps.present)
+	}
+	if (event->ht_caps.present) {
+		stainfo->ht_present = true;
 		hdd_copy_ht_caps(&stainfo->ht_caps, &event->ht_caps);
+	}
 
 	while (i < WLAN_MAX_STA_COUNT) {
-		if (pHostapdAdapter->cache_sta_info[i].isUsed != TRUE)
+		if (!qdf_mem_cmp(pHostapdAdapter->
+				 cache_sta_info[i].macAddrSTA.bytes,
+				 event->staMac.bytes,
+				 QDF_MAC_ADDR_SIZE)) {
+			qdf_mem_zero(&pHostapdAdapter->cache_sta_info[i],
+				     sizeof(*stainfo));
 			break;
+		}
 		i++;
+	}
+
+	if (i == WLAN_MAX_STA_COUNT) {
+		i = 0;
+		while (i < WLAN_MAX_STA_COUNT) {
+			if (pHostapdAdapter->cache_sta_info[i].isUsed != TRUE)
+				break;
+			i++;
+		}
 	}
 	if (i < WLAN_MAX_STA_COUNT)
 		qdf_mem_copy(&pHostapdAdapter->cache_sta_info[i],
@@ -1479,6 +1504,46 @@ static void hdd_fill_station_info(hdd_adapter_t *pHostapdAdapter,
 			stainfo->max_mcs_idx,
 			stainfo->rx_mcs_map,
 			stainfo->tx_mcs_map);
+}
+
+/**
+ * hdd_stop_sap_due_to_invalid_channel() - to stop sap in case of invalid chnl
+ * @work: pointer to work structure
+ *
+ * Let's say SAP detected RADAR and trying to select the new channel and if no
+ * valid channel is found due to none of the channels are available or
+ * regulatory restriction then SAP needs to be stopped. so SAP state-machine
+ * will create a work to stop the bss
+ *
+ * stop bss has to happen through worker thread because radar indication comes
+ * from FW through mc thread or main host thread and if same thread is used to
+ * do stopbss then waiting for stopbss to finish operation will halt mc thread
+ * to freeze which will trigger stopbss timeout. Instead worker thread can do
+ * the stopbss operation while mc thread waits for stopbss to finish.
+ *
+ * Return: none
+ */
+static void
+hdd_stop_sap_due_to_invalid_channel(struct work_struct *work)
+{
+	/*
+	 * Extract the adapter from work structure. sap_stop_bss_work
+	 * is part of adapter context.
+	 */
+	hdd_adapter_t *sap_adapter = container_of(work, hdd_adapter_t,
+						  sap_stop_bss_work);
+	cds_ssr_protect(__func__);
+	if (sap_adapter == NULL) {
+	    cds_err("sap_adapter is NULL, no work needed");
+	    cds_ssr_unprotect(__func__);
+	    return;
+	}
+	hdd_debug("work started for sap session[%d]", sap_adapter->sessionId);
+	wlan_hdd_stop_sap(sap_adapter);
+	wlansap_set_invalid_session(WLAN_HDD_GET_SAP_CTX_PTR(sap_adapter));
+	wlansap_cleanup_cac_timer(WLAN_HDD_GET_SAP_CTX_PTR(sap_adapter));
+	hdd_debug("work finished for sap");
+	cds_ssr_unprotect(__func__);
 }
 
 QDF_STATUS hdd_hostapd_sap_event_cb(tpSap_Event pSapEvent,
@@ -1818,9 +1883,13 @@ QDF_STATUS hdd_hostapd_sap_event_cb(tpSap_Event pSapEvent,
 		}
 
 		hdd_debug("bss_stop_reason=%d", pHddApCtx->bss_stop_reason);
-		if (pHddApCtx->bss_stop_reason !=
-			BSS_STOP_DUE_TO_MCC_SCC_SWITCH) {
-			/* when MCC to SCC switching happens, key storage
+		if ((BSS_STOP_DUE_TO_MCC_SCC_SWITCH !=
+			pHddApCtx->bss_stop_reason) &&
+		    (BSS_STOP_DUE_TO_VENDOR_CONFIG_CHAN !=
+			pHddApCtx->bss_stop_reason)) {
+			/*
+			 * when MCC to SCC switching or vendor subcmd
+			 * setting sap config channel happens, key storage
 			 * should not be cleared due to hostapd will not
 			 * repopulate the original keys
 			 */
@@ -2175,20 +2244,7 @@ QDF_STATUS hdd_hostapd_sap_event_cb(tpSap_Event pSapEvent,
 			hdd_err("Failed to find sta id status: %d", qdf_status);
 			return QDF_STATUS_E_FAILURE;
 		}
-#ifdef IPA_OFFLOAD
-		if (hdd_ipa_is_enabled(pHddCtx)) {
-			status = hdd_ipa_wlan_evt(pHostapdAdapter, staId,
-					HDD_IPA_CLIENT_DISCONNECT,
-					pSapEvent->sapevt.
-					sapStationDisassocCompleteEvent.
-					staMac.bytes);
 
-			if (status) {
-				hdd_err("WLAN_CLIENT_DISCONNECT event failed");
-				goto stopbss;
-			}
-		}
-#endif
 		DPTRACE(qdf_dp_trace_mgmt_pkt(QDF_DP_TRACE_MGMT_PACKET_RECORD,
 			pHostapdAdapter->sessionId,
 			QDF_PROTO_TYPE_MGMT, QDF_PROTO_MGMT_DISASSOC));
@@ -2524,6 +2580,13 @@ QDF_STATUS hdd_hostapd_sap_event_cb(tpSap_Event pSapEvent,
 	case eSAP_UPDATE_SCAN_RESULT:
 		return hdd_update_scan_result(pSapEvent,
 					pHostapdAdapter);
+	case eSAP_STOP_BSS_DUE_TO_NO_CHNL:
+		hdd_debug("Stop sap session[%d]",
+			  pHostapdAdapter->sessionId);
+		INIT_WORK(&pHostapdAdapter->sap_stop_bss_work,
+			  hdd_stop_sap_due_to_invalid_channel);
+		schedule_work(&pHostapdAdapter->sap_stop_bss_work);
+		return QDF_STATUS_SUCCESS;
 	default:
 		hdd_debug("SAP message is not handled");
 		goto stopbss;
@@ -3649,7 +3712,10 @@ static __iw_softap_setparam(struct net_device *dev,
 		/* If input value is non-zero get stats */
 		switch (set_value) {
 		case 1:
-			hdd_ipa_uc_stat_request(pHostapdAdapter, set_value);
+			hdd_ipa_uc_stat(pHostapdAdapter);
+			break;
+		case 2:
+			hdd_ipa_uc_info(hdd_ctx);
 			break;
 		case 3:
 			hdd_ipa_uc_rt_debug_host_dump(hdd_ctx);
@@ -4588,7 +4654,7 @@ static int __iw_get_channel_list(struct net_device *dev,
 	tHalHandle hal = WLAN_HDD_GET_HAL_CTX(hostapd_adapter);
 	struct channel_list_info *channel_list =
 					(struct channel_list_info *) extra;
-	eCsrBand cur_band = eCSR_BAND_ALL;
+	tSirRFBand cur_band = SIR_BAND_ALL;
 	hdd_context_t *hdd_ctx;
 	int ret;
 	bool is_dfs_mode_enabled = false;
@@ -4606,14 +4672,14 @@ static int __iw_get_channel_list(struct net_device *dev,
 	}
 	wrqu->data.length = sizeof(struct channel_list_info);
 
-	if (eCSR_BAND_24 == cur_band) {
+	if (SIR_BAND_2_4_GHZ == cur_band) {
 		band_start_channel = CHAN_ENUM_1;
 		band_end_channel = CHAN_ENUM_14;
-	} else if (eCSR_BAND_5G == cur_band) {
+	} else if (SIR_BAND_5_GHZ == cur_band) {
 		band_start_channel = CHAN_ENUM_36;
 		band_end_channel = CHAN_ENUM_184;
 	}
-	if (cur_band != eCSR_BAND_24) {
+	if (cur_band != SIR_BAND_2_4_GHZ) {
 		if (hdd_ctx->config->dot11p_mode)
 			band_end_channel = CHAN_ENUM_184;
 		else
@@ -5332,7 +5398,7 @@ __iw_softap_stopbss(struct net_device *dev,
 			WLAN_HDD_GET_SAP_CTX_PTR(pHostapdAdapter));
 		if (QDF_IS_STATUS_SUCCESS(status)) {
 			qdf_status =
-				qdf_wait_single_event(&pHostapdState->
+				qdf_wait_for_event_completion(&pHostapdState->
 					qdf_stop_bss_event,
 					SME_CMD_TIMEOUT_VALUE);
 
@@ -6518,8 +6584,6 @@ QDF_STATUS hdd_init_ap_mode(hdd_adapter_t *pAdapter, bool reinit)
 		return qdf_status;
 	}
 
-	init_completion(&pAdapter->session_close_comp_var);
-	init_completion(&pAdapter->session_open_comp_var);
 
 	sema_init(&(WLAN_HDD_GET_AP_CTX_PTR(pAdapter))->semWpsPBCOverlapInd, 1);
 
@@ -6589,6 +6653,7 @@ hdd_adapter_t *hdd_wlan_create_ap_dev(hdd_context_t *pHddCtx,
 {
 	struct net_device *pWlanHostapdDev = NULL;
 	hdd_adapter_t *pHostapdAdapter = NULL;
+	QDF_STATUS qdf_status;
 
 	hdd_debug("iface_name = %s", iface_name);
 
@@ -6637,7 +6702,7 @@ hdd_adapter_t *hdd_wlan_create_ap_dev(hdd_context_t *pHddCtx,
 			     (void *)macAddr, sizeof(tSirMacAddr));
 
 		pHostapdAdapter->offloads_configured = false;
-		pWlanHostapdDev->destructor = free_netdev;
+		hdd_dev_setup_destructor(pWlanHostapdDev);
 		pWlanHostapdDev->ieee80211_ptr = &pHostapdAdapter->wdev;
 		pHostapdAdapter->wdev.wiphy = pHddCtx->wiphy;
 		pHostapdAdapter->wdev.netdev = pWlanHostapdDev;
@@ -6654,6 +6719,23 @@ hdd_adapter_t *hdd_wlan_create_ap_dev(hdd_context_t *pHddCtx,
 		spin_lock_init(&pHostapdAdapter->pause_map_lock);
 		pHostapdAdapter->start_time =
 			pHostapdAdapter->last_time = qdf_system_ticks();
+
+		qdf_status = qdf_event_create(
+				&pHostapdAdapter->qdf_session_open_event);
+		if (!QDF_IS_STATUS_SUCCESS(qdf_status)) {
+			hdd_err("failed to create session open QDF event!");
+			free_netdev(pHostapdAdapter->dev);
+			return NULL;
+		}
+
+		qdf_status = qdf_event_create(
+				&pHostapdAdapter->qdf_session_close_event);
+		if (!QDF_IS_STATUS_SUCCESS(qdf_status)) {
+			hdd_err("failed to create session close QDF event!");
+			free_netdev(pHostapdAdapter->dev);
+			return NULL;
+		}
+
 	}
 	return pHostapdAdapter;
 }
@@ -7589,7 +7671,10 @@ static int wlan_hdd_setup_driver_overrides(hdd_adapter_t *ap_adapter)
 			(sap_cfg->SapHw_mode == eCSR_DOT11_MODE_11n ||
 			sap_cfg->SapHw_mode == eCSR_DOT11_MODE_11ac ||
 			sap_cfg->SapHw_mode == eCSR_DOT11_MODE_11ac_ONLY) &&
-			!hdd_ctx->config->sap_force_11n_for_11ac) {
+			!(((ap_adapter->device_mode == QDF_SAP_MODE) &&
+			(hdd_ctx->config->sap_force_11n_for_11ac)) ||
+			((ap_adapter->device_mode == QDF_P2P_GO_MODE) &&
+			(hdd_ctx->config->go_force_11n_for_11ac)))) {
 		hdd_debug("** Driver force 11AC override for SAP/Go **");
 
 		/* 11n only shall not be overridden since it may be on purpose*/
@@ -7640,7 +7725,10 @@ setup_acs_overrides:
 	if (sap_cfg->SapHw_mode == eCSR_DOT11_MODE_AUTO)
 		sap_cfg->SapHw_mode = eCSR_DOT11_MODE_11ac;
 
-	if (hdd_ctx->config->sap_force_11n_for_11ac) {
+	if (((ap_adapter->device_mode == QDF_SAP_MODE) &&
+	     (hdd_ctx->config->sap_force_11n_for_11ac)) ||
+	     ((ap_adapter->device_mode == QDF_P2P_GO_MODE) &&
+	     (hdd_ctx->config->go_force_11n_for_11ac))) {
 		if (sap_cfg->SapHw_mode == eCSR_DOT11_MODE_11ac ||
 		    sap_cfg->SapHw_mode == eCSR_DOT11_MODE_11ac_ONLY)
 			sap_cfg->SapHw_mode = eCSR_DOT11_MODE_11n;
@@ -7850,6 +7938,7 @@ int wlan_hdd_cfg80211_start_bss(hdd_adapter_t *pHostapdAdapter,
 		    sme_update_channel_list(pHddCtx->hHal))) {
 			hdd_update_indoor_channel(pHddCtx, false);
 			hdd_err("Can't start BSS: update channel list failed");
+			qdf_mem_free(sme_config);
 			return -EINVAL;
 		}
 	}
@@ -7882,6 +7971,7 @@ int wlan_hdd_cfg80211_start_bss(hdd_adapter_t *pHostapdAdapter,
 
 	pConfig->chan_switch_hostapd_rate_enabled =
 			iniConfig->chan_switch_hostapd_rate_enabled;
+
 	if (iniConfig->WlanMccToSccSwitchMode !=
 			QDF_MCC_TO_SCC_SWITCH_DISABLE) {
 		pConfig->chan_switch_hostapd_rate_enabled = false;
@@ -7993,6 +8083,8 @@ int wlan_hdd_cfg80211_start_bss(hdd_adapter_t *pHostapdAdapter,
 	wlansap_set_tx_leakage_threshold(hHal,
 		iniConfig->sap_tx_leakage_threshold);
 
+	wlansap_set_etsi_srd_chan_support(hHal,
+			iniConfig->etsi_srd_chan_in_master_mode);
 	capab_info = pMgmt_frame->u.beacon.capab_info;
 
 	pConfig->privacy = (pMgmt_frame->u.beacon.capab_info &
@@ -8266,7 +8358,10 @@ int wlan_hdd_cfg80211_start_bss(hdd_adapter_t *pHostapdAdapter,
 	if (!cds_is_sub_20_mhz_enabled())
 		wlan_hdd_set_sap_hwmode(pHostapdAdapter);
 
-	if (pHddCtx->config->sap_force_11n_for_11ac) {
+	if (((pHostapdAdapter->device_mode == QDF_SAP_MODE) &&
+	     (pHddCtx->config->sap_force_11n_for_11ac)) ||
+	     ((pHostapdAdapter->device_mode == QDF_P2P_GO_MODE) &&
+	     (pHddCtx->config->go_force_11n_for_11ac))) {
 		if (pConfig->SapHw_mode == eCSR_DOT11_MODE_11ac ||
 		    pConfig->SapHw_mode == eCSR_DOT11_MODE_11ac_ONLY)
 			pConfig->SapHw_mode = eCSR_DOT11_MODE_11n;
@@ -8287,7 +8382,10 @@ int wlan_hdd_cfg80211_start_bss(hdd_adapter_t *pHostapdAdapter,
 		sme_config->csrConfig.WMMSupportMode = eCsrRoamWmmNoQos;
 	sme_update_config(pHddCtx->hHal, sme_config);
 
-	if (!pHddCtx->config->sap_force_11n_for_11ac) {
+	if (!((pHostapdAdapter->device_mode == QDF_SAP_MODE) &&
+	     (pHddCtx->config->sap_force_11n_for_11ac)) ||
+	     ((pHostapdAdapter->device_mode == QDF_P2P_GO_MODE) &&
+	     (pHddCtx->config->go_force_11n_for_11ac))) {
 		pConfig->ch_width_orig =
 			hdd_map_nl_chan_width(pConfig->ch_width_orig);
 	} else {
@@ -8402,7 +8500,7 @@ int wlan_hdd_cfg80211_start_bss(hdd_adapter_t *pHostapdAdapter,
 
 	hdd_debug("Waiting for Scan to complete(auto mode) and BSS to start");
 
-	qdf_status = qdf_wait_single_event(&pHostapdState->qdf_event,
+	qdf_status = qdf_wait_for_event_completion(&pHostapdState->qdf_event,
 						SME_CMD_TIMEOUT_VALUE);
 
 	wlansap_reset_sap_config_add_ie(pConfig, eUPDATE_IE_ALL);
@@ -8451,13 +8549,13 @@ int wlan_hdd_cfg80211_start_bss(hdd_adapter_t *pHostapdAdapter,
 	return 0;
 
 error:
-	if (sme_config)
-		qdf_mem_free(sme_config);
 	/* Revert the indoor to passive marking if START BSS fails */
 	if (iniConfig->disable_indoor_channel) {
 		hdd_update_indoor_channel(pHddCtx, false);
 		sme_update_channel_list(pHddCtx->hHal);
 	}
+	if (sme_config)
+		qdf_mem_free(sme_config);
 	clear_bit(SOFTAP_INIT_DONE, &pHostapdAdapter->event_flags);
 	if (pHostapdAdapter->sessionCtx.ap.sapConfig.acs_cfg.ch_list) {
 		qdf_mem_free(pHostapdAdapter->sessionCtx.ap.sapConfig.
@@ -8570,6 +8668,7 @@ static int __wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
 		status = hdd_get_next_adapter(pHddCtx, pAdapterNode, &pNext);
 		pAdapterNode = pNext;
 	}
+	cds_flush_work(&pAdapter->sap_stop_bss_work);
 	/*
 	 * When ever stop ap adapter gets called, we need to check
 	 * whether any restart AP work is pending. If any restart is pending
@@ -8614,7 +8713,7 @@ static int __wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
 		status = wlansap_stop_bss(WLAN_HDD_GET_SAP_CTX_PTR(pAdapter));
 		if (QDF_IS_STATUS_SUCCESS(status)) {
 			qdf_status =
-				qdf_wait_single_event(&pHostapdState->
+				qdf_wait_for_event_completion(&pHostapdState->
 					qdf_stop_bss_event,
 					SME_CMD_TIMEOUT_VALUE);
 
@@ -8727,6 +8826,80 @@ int wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
 
 	return ret;
 }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0)) || \
+	defined(CFG80211_BEACON_TX_RATE_CUSTOM_BACKPORT)
+/**
+ * hdd_get_data_rate_from_rate_mask() - convert mask to rate
+ * @wiphy: Pointer to wiphy
+ * @band: band
+ * @bit_rate_mask: pointer to bit_rake_mask
+ *
+ * This function takes band and bit_rate_mask as input and
+ * derives the beacon_tx_rate based on the supported rates
+ * published as part of wiphy register.
+ *
+ * Return: data rate for success or zero for failure
+ */
+static uint16_t hdd_get_data_rate_from_rate_mask(struct wiphy *wiphy,
+		enum nl80211_band band,
+		struct cfg80211_bitrate_mask *bit_rate_mask)
+{
+	struct ieee80211_supported_band *sband = wiphy->bands[band];
+	int sband_n_bitrates;
+	struct ieee80211_rate *sband_bitrates;
+	int i;
+
+	if (sband) {
+		sband_bitrates = sband->bitrates;
+		sband_n_bitrates = sband->n_bitrates;
+		for (i = 0; i < sband_n_bitrates; i++) {
+			if (bit_rate_mask->control[band].legacy ==
+			    sband_bitrates[i].hw_value)
+				return sband_bitrates[i].bitrate;
+		}
+	}
+	return 0;
+}
+
+/**
+ * hdd_update_beacon_rate() - Update beacon tx rate
+ * @pAdapter: Pointer to hdd_adapter_t
+ * @wiphy: Pointer to wiphy
+ * @params: Pointet to cfg80211_ap_settings
+ *
+ * This function updates the beacon tx rate which is provided
+ * as part of cfg80211_ap_settions in to the sapConfig
+ * structure
+ *
+ * Return: none
+ */
+static void hdd_update_beacon_rate(hdd_adapter_t *adapter,
+		struct wiphy *wiphy,
+		struct cfg80211_ap_settings *params)
+{
+	struct cfg80211_bitrate_mask *beacon_rate_mask;
+	enum  nl80211_band band;
+
+	band = params->chandef.chan->band;
+	beacon_rate_mask = &params->beacon_rate;
+	if (beacon_rate_mask->control[band].legacy) {
+		adapter->sessionCtx.ap.sapConfig.beacon_tx_rate =
+			hdd_get_data_rate_from_rate_mask(wiphy, band,
+					beacon_rate_mask);
+		hdd_debug("beacon mask value %u, rate %hu",
+			  params->beacon_rate.control[0].legacy,
+			  adapter->sessionCtx.ap.sapConfig.beacon_tx_rate);
+	}
+}
+#else
+static void hdd_update_beacon_rate(hdd_adapter_t *adapter,
+		struct wiphy *wiphy,
+		struct cfg80211_ap_settings *params)
+{
+}
+#endif
+
 
 /**
  * __wlan_hdd_cfg80211_start_ap() - start soft ap mode
@@ -8930,6 +9103,8 @@ static int __wlan_hdd_cfg80211_start_ap(struct wiphy *wiphy,
 		wlan_hdd_set_channel(wiphy, dev,
 				     &params->chandef,
 				     channel_type);
+
+		hdd_update_beacon_rate(pAdapter, wiphy, params);
 
 		/* set authentication type */
 		switch (params->auth_type) {

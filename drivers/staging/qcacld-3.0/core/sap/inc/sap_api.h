@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -181,6 +181,7 @@ typedef enum {
 	eSAP_DFS_NOL_SET,
 	/* No ch available after DFS RADAR detect */
 	eSAP_DFS_NO_AVAILABLE_CHANNEL,
+	eSAP_STOP_BSS_DUE_TO_NO_CHNL,
 	eSAP_ACS_SCAN_SUCCESS_EVENT,
 	eSAP_ACS_CHANNEL_SELECTED,
 	eSAP_ECSA_CHANGE_CHAN_IND,
@@ -422,7 +423,7 @@ struct sap_roc_ready_ind_s {
  * @channellist: acs scan channels
  * @num_of_channels: number of channels
  */
-struct sap_acs_scan_complete_event{
+struct sap_acs_scan_complete_event {
 	uint8_t status;
 	uint8_t *channellist;
 	uint8_t num_of_channels;
@@ -496,7 +497,7 @@ typedef struct sap_SSIDInfo {
 struct sap_acs_cfg {
 	/* ACS Algo Input */
 	uint8_t    acs_mode;
-	uint32_t    hw_mode;
+	eCsrPhyMode hw_mode;
 	uint8_t    start_ch;
 	uint8_t    end_ch;
 	uint8_t    *ch_list;
@@ -608,7 +609,7 @@ typedef struct sap_Config {
 	/* buffer for addn ies comes from hostapd */
 	void *pProbeRespBcnIEsBuffer;
 	uint8_t sap_dot11mc; /* Specify if 11MC is enabled or disabled*/
-	uint8_t beacon_tx_rate;
+	uint16_t beacon_tx_rate;
 	uint8_t *vendor_ie;
 	enum vendor_ie_access_policy vendor_ie_access_policy;
 	uint16_t sta_inactivity_timeout;
@@ -753,6 +754,7 @@ typedef struct tagSapStruct {
 	bool sap_channel_avoidance;
 #endif /* FEATURE_AP_MCC_CH_AVOIDANCE */
 	bool enable_dfs_phy_error_logs;
+	bool enable_etsi_srd_chan_support;
 } tSapStruct, *tpSapStruct;
 
 #define WPS_PROBRSP_VER_PRESENT                          0x00000001
@@ -1021,6 +1023,17 @@ QDF_STATUS wlansap_set_tx_leakage_threshold(tHalHandle hal,
 
 QDF_STATUS wlansap_set_invalid_session(void *cds_ctx);
 QDF_STATUS sap_roam_session_close_callback(void *pContext);
+
+/**
+ * wlansap_set_etsi_srd_chan_support() - set SRD channel support.
+ * @hal: HAL pointer
+ * @srd_chan_support: SRD channel support
+ *
+ * This function set sap SRD channel support
+ *
+ * Return: None
+ */
+void wlansap_set_etsi_srd_chan_support(tHalHandle hal, bool srd_chan_support);
 
 /**
  * wlansap_cleanup_cac_timer() - Force cleanup DFS CAC timer

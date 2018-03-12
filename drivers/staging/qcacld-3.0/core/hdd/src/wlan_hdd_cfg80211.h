@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -149,7 +149,7 @@ typedef struct {
 #define WLAN_IS_TDLS_SETUP_ACTION(action) \
 	((SIR_MAC_TDLS_SETUP_REQ <= action) && \
 	(SIR_MAC_TDLS_SETUP_CNF >= action))
-#if !defined (TDLS_MGMT_VERSION2)
+#if !defined(TDLS_MGMT_VERSION2)
 #define TDLS_MGMT_VERSION2 0
 #endif
 
@@ -299,6 +299,25 @@ typedef struct sHddAvoidFreqList {
  * Return: true if the IE sequence is valid, false if it is invalid
  */
 bool hdd_is_ie_valid(const uint8_t *ie, size_t ie_len);
+
+
+#define CONNECTIVITY_CHECK_SET_ARP \
+	QCA_WLAN_VENDOR_CONNECTIVITY_CHECK_SET_ARP
+#define CONNECTIVITY_CHECK_SET_DNS \
+	QCA_WLAN_VENDOR_CONNECTIVITY_CHECK_SET_DNS
+#define CONNECTIVITY_CHECK_SET_TCP_HANDSHAKE \
+	QCA_WLAN_VENDOR_CONNECTIVITY_CHECK_SET_TCP_HANDSHAKE
+#define CONNECTIVITY_CHECK_SET_ICMPV4 \
+	QCA_WLAN_VENDOR_CONNECTIVITY_CHECK_SET_ICMPV4
+#define CONNECTIVITY_CHECK_SET_ICMPV6 \
+	QCA_WLAN_VENDOR_CONNECTIVITY_CHECK_SET_ICMPV6
+#define CONNECTIVITY_CHECK_SET_TCP_SYN \
+	QCA_WLAN_VENDOR_CONNECTIVITY_CHECK_SET_TCP_SYN
+#define CONNECTIVITY_CHECK_SET_TCP_SYN_ACK \
+	QCA_WLAN_VENDOR_CONNECTIVITY_CHECK_SET_TCP_SYN_ACK
+#define CONNECTIVITY_CHECK_SET_TCP_ACK \
+	QCA_WLAN_VENDOR_CONNECTIVITY_CHECK_SET_TCP_ACK
+
 
 struct cfg80211_bss *wlan_hdd_cfg80211_update_bss_db(hdd_adapter_t *pAdapter,
 						tCsrRoamInfo *pRoamInfo);
@@ -476,7 +495,7 @@ static inline int wlan_hdd_send_roam_auth_event(hdd_adapter_t *adapter,
 
 int wlan_hdd_cfg80211_update_apies(hdd_adapter_t *adapter);
 
-#if !(defined (SUPPORT_WDEV_CFG80211_VENDOR_EVENT_ALLOC)) &&	\
+#if !(defined(SUPPORT_WDEV_CFG80211_VENDOR_EVENT_ALLOC)) &&	\
 	(LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 0)) &&	\
 	!(defined(WITH_BACKPORTS))
 
@@ -521,9 +540,10 @@ int wlan_hdd_disable_dfs_chan_scan(hdd_context_t *hdd_ctx,
 				   uint32_t no_dfs_flag);
 
 int wlan_hdd_cfg80211_update_band(struct wiphy *wiphy,
-				  eCsrBand eBand);
+				  tSirRFBand eBand);
 
-void hdd_get_bpf_offload_cb(void *hdd_context, struct sir_bpf_get_offload *);
+void hdd_get_bpf_offload_cb(void *hdd_context,
+			    struct sir_bpf_get_offload *data);
 void hdd_init_bpf_completion(void);
 
 #if defined(CFG80211_DISCONNECTED_V2) || \
@@ -644,4 +664,11 @@ void wlan_hdd_save_gtk_offload_params(hdd_adapter_t *adapter,
 					     uint8_t *replay_ctr,
 					     bool big_endian,
 					     uint32_t ul_flags);
+/**
+ * wlan_hdd_send_mode_change_event() - API to send hw mode change event to
+ * userspace
+ *
+ * Return : 0 on success and errno on failure
+ */
+int wlan_hdd_send_mode_change_event(void);
 #endif

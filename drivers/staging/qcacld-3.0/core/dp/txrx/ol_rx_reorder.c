@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -30,7 +30,7 @@
 #include <qdf_nbuf.h>           /* qdf_nbuf_t, etc. */
 #include <qdf_mem.h>         /* qdf_mem_malloc */
 
-#include <ieee80211.h>          /* IEEE80211_SEQ_MAX */
+#include <linux/ieee80211.h>          /* IEEE80211_SEQ_MAX */
 
 /* external interfaces */
 #include <ol_txrx_api.h>        /* ol_txrx_pdev_handle */
@@ -533,12 +533,6 @@ ol_rx_addba_handler(ol_txrx_pdev_handle pdev,
 	struct ol_txrx_peer_t *peer;
 	struct ol_rx_reorder_t *rx_reorder;
 
-	if (tid >= OL_TXRX_NUM_EXT_TIDS) {
-		ol_txrx_err("%s:  invalid tid, %u\n", __FUNCTION__, tid);
-		WARN_ON(1);
-		return;
-	}
-
 	peer = ol_txrx_peer_find_by_id(pdev, peer_id);
 	if (peer == NULL)
 		return;
@@ -574,12 +568,6 @@ ol_rx_delba_handler(ol_txrx_pdev_handle pdev, uint16_t peer_id, uint8_t tid)
 {
 	struct ol_txrx_peer_t *peer;
 	struct ol_rx_reorder_t *rx_reorder;
-
-	if (tid >= OL_TXRX_NUM_EXT_TIDS) {
-		ol_txrx_err("%s:  invalid tid, %u\n", __FUNCTION__, tid);
-		WARN_ON(1);
-		return;
-	}
 
 	peer = ol_txrx_peer_find_by_id(pdev, peer_id);
 	if (peer == NULL)
@@ -682,11 +670,6 @@ ol_rx_pn_ind_handler(ol_txrx_pdev_handle pdev,
 	uint16_t seq_num;
 	int i = 0;
 
-	if (tid >= OL_TXRX_NUM_EXT_TIDS) {
-		ol_txrx_err("%s:  invalid tid, %u\n", __FUNCTION__, tid);
-		WARN_ON(1);
-		return;
-	}
 	peer = ol_txrx_peer_find_by_id(pdev, peer_id);
 
 	if (!peer) {

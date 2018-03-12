@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -118,6 +118,11 @@ QDF_STATUS wlansap_scan_callback(tHalHandle hal_handle,
 	if (sap_ctx->sapsMachine == eSAP_DISCONNECTED) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_WARN,
 				"In %s BSS already stopped", __func__);
+		if (sap_ctx->channelList != NULL) {
+			qdf_mem_free(sap_ctx->channelList);
+			sap_ctx->channelList = NULL;
+			sap_ctx->num_of_channel = 0;
+		}
 		return QDF_STATUS_E_FAILURE;
 	}
 
@@ -284,6 +289,7 @@ static QDF_STATUS sap_hdd_signal_event_handler(void *ctx)
 {
 	ptSapContext sap_ctx = (struct sSapContext *)ctx;
 	QDF_STATUS status;
+
 	if (NULL == sap_ctx) {
 		QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_ERROR,
 				FL("sap context is not valid"));
@@ -326,8 +332,7 @@ wlansap_pre_start_bss_acs_scan_callback(tHalHandle hal_handle, void *pcontext,
 			FL("CSR scan_status = eCSR_SCAN_ABORT/FAILURE (%d), choose default channel"),
 			scan_status);
 		sap_ctx->channel =
-			sap_select_default_oper_chan(hal_handle,
-					sap_ctx->acs_cfg->hw_mode);
+			sap_select_default_oper_chan(sap_ctx->acs_cfg);
 		sap_ctx->sap_state = eSAP_ACS_CHANNEL_SELECTED;
 		sap_ctx->sap_status = eSAP_STATUS_SUCCESS;
 		goto close_session;
@@ -392,8 +397,7 @@ wlansap_pre_start_bss_acs_scan_callback(tHalHandle hal_handle, void *pcontext,
 	} else {
 #else
 		sap_ctx->channel =
-			sap_select_default_oper_chan(hal_handle,
-				sap_ctx->acs_cfg->hw_mode);
+			sap_select_default_oper_chan(sap_ctx->acs_cfg);
 	} else {
 #endif
 		/* Valid Channel Found from scan results. */
@@ -667,6 +671,7 @@ wlansap_roam_process_dfs_chansw_update(tHalHandle hHal,
 	/* Issue channel change req for each sapctx */
 	for (intf = 0; intf < SAP_MAX_NUM_SESSION; intf++) {
 		ptSapContext pSapContext;
+
 		if (!((QDF_SAP_MODE == mac_ctx->sap.sapCtxList[intf].sapPersona)
 		    && (mac_ctx->sap.sapCtxList[intf].pSapContext != NULL)))
 			continue;
@@ -710,6 +715,7 @@ wlansap_roam_process_dfs_radar_found(tpAniSirGlobal mac_ctx,
 {
 	QDF_STATUS qdf_status;
 	tWLAN_SAPEvent sap_event;
+
 	if (eSAP_DFS_CAC_WAIT == sap_ctx->sapsMachine) {
 		if (sap_ctx->csr_roamProfile.disableDFSChSwitch) {
 			QDF_TRACE(QDF_MODULE_ID_SAP,
@@ -804,6 +810,7 @@ wlansap_roam_process_infra_assoc_ind(ptSapContext sap_ctx,
 				     QDF_STATUS *ret_status)
 {
 	QDF_STATUS qdf_status;
+
 	QDF_TRACE(QDF_MODULE_ID_SAP, QDF_TRACE_LEVEL_INFO_HIGH,
 		  FL("CSR roam_result = eCSR_ROAM_RESULT_INFRA_ASSOCIATION_IND (%d)"),
 		  roam_result);
@@ -1052,7 +1059,9 @@ wlansap_roam_callback(void *ctx, tCsrRoamInfo *csr_roam_info, uint32_t roamId,
 					  QDF_TRACE_LEVEL_ERROR,
 					  FL("sapdfs: no available channel for sapctx[%pK], StopBss"),
 					  pSapContext);
-				wlansap_stop_bss(pSapContext);
+				sap_signal_hdd_event(sap_ctx, NULL,
+					eSAP_STOP_BSS_DUE_TO_NO_CHNL,
+					(void *) eSAP_STATUS_SUCCESS);
 			}
 		}
 		break;

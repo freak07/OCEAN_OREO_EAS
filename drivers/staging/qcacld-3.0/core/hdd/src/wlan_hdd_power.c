@@ -1433,7 +1433,6 @@ QDF_STATUS hdd_wlan_shutdown(void)
 	v_CONTEXT_t p_cds_context = NULL;
 	hdd_context_t *pHddCtx;
 	p_cds_sched_context cds_sched_context = NULL;
-	QDF_STATUS qdf_status;
 
 	hdd_info("WLAN driver shutting down!");
 
@@ -1470,6 +1469,7 @@ QDF_STATUS hdd_wlan_shutdown(void)
 	if (true == pHddCtx->isMcThreadSuspended) {
 		complete(&cds_sched_context->ResumeMcEvent);
 		pHddCtx->isMcThreadSuspended = false;
+		pHddCtx->isWiphySuspended = false;
 	}
 #ifdef QCA_CONFIG_SMP
 	if (true == pHddCtx->is_ol_rx_thread_suspended) {
@@ -1478,11 +1478,6 @@ QDF_STATUS hdd_wlan_shutdown(void)
 	}
 #endif
 
-	qdf_status = cds_sched_close(p_cds_context);
-	if (!QDF_IS_STATUS_SUCCESS(qdf_status)) {
-		hdd_err("Failed to close CDS Scheduler");
-		QDF_ASSERT(false);
-	}
 	hdd_ipa_uc_ssr_deinit();
 
 	qdf_mc_timer_stop(&pHddCtx->tdls_source_timer);
@@ -1539,7 +1534,8 @@ static void hdd_send_default_scan_ies(hdd_context_t *hdd_ctx)
 		adapter = adapter_node->pAdapter;
 		if (hdd_is_interface_up(adapter) &&
 		    (adapter->device_mode == QDF_STA_MODE ||
-		    adapter->device_mode == QDF_P2P_DEVICE_MODE)) {
+		    adapter->device_mode == QDF_P2P_DEVICE_MODE) &&
+		    adapter->scan_info.default_scan_ies) {
 			sme_set_default_scan_ie(hdd_ctx->hHal,
 				      adapter->sessionId,
 				      adapter->scan_info.default_scan_ies,
@@ -1755,6 +1751,20 @@ void wlan_hdd_inc_suspend_stats(hdd_context_t *hdd_ctx,
 	wlan_hdd_print_suspend_fail_stats(hdd_ctx);
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
+static inline void
+hdd_sched_scan_results(struct wiphy *wiphy, uint64_t reqid)
+{
+	cfg80211_sched_scan_results(wiphy);
+}
+#else
+static inline void
+hdd_sched_scan_results(struct wiphy *wiphy, uint64_t reqid)
+{
+	cfg80211_sched_scan_results(wiphy, reqid);
+}
+#endif
+
 /**
  * __wlan_hdd_cfg80211_resume_wlan() - cfg80211 resume callback
  * @wiphy: Pointer to wiphy
@@ -1851,7 +1861,7 @@ static int __wlan_hdd_cfg80211_resume_wlan(struct wiphy *wiphy)
 				hdd_prevent_suspend_timeout(
 					HDD_WAKELOCK_TIMEOUT_RESUME,
 					WIFI_POWER_EVENT_WAKELOCK_RESUME_WLAN);
-				cfg80211_sched_scan_results(pHddCtx->wiphy);
+				hdd_sched_scan_results(pHddCtx->wiphy, 0);
 			}
 
 			hdd_debug("cfg80211 scan result database updated");

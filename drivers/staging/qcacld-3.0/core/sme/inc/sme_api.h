@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -47,6 +47,7 @@
 #include "cds_regdomain.h"
 #include "sme_internal.h"
 #include "wma_tgt_cfg.h"
+#include "wma_sar_public_structs.h"
 
 #include "sme_rrm_internal.h"
 #include "sir_types.h"
@@ -75,6 +76,14 @@
 
 #define SME_ENTER() sme_logfl(QDF_TRACE_LEVEL_DEBUG, "enter")
 #define SME_EXIT() sme_logfl(QDF_TRACE_LEVEL_DEBUG, "exit")
+
+/* DBS Scan policy selection ext flags */
+#define SME_SCAN_FLAG_EXT_DBS_SCAN_POLICY_MASK  0x00000003
+#define SME_SCAN_FLAG_EXT_DBS_SCAN_POLICY_BIT   0
+#define SME_SCAN_DBS_POLICY_DEFAULT             0x0
+#define SME_SCAN_DBS_POLICY_FORCE_NONDBS        0x1
+#define SME_SCAN_DBS_POLICY_IGNORE_DUTY         0x2
+#define SME_SCAN_DBS_POLICY_MAX                 0x3
 
 #define SME_SESSION_ID_ANY        50
 
@@ -223,6 +232,29 @@ struct sme_oem_capability {
 };
 
 /**
+ * enum sme_scan_flags -  scan request control flags
+ *
+ * @SME_SCAN_FLAG_LOW_SPAN: Span corresponds to the total time
+ *      taken to accomplish the scan. Thus, this flag intends the driver to
+ *      perform the scan request with lesser span/duration. It is specific to
+ *      the driver implementations on how this is accomplished. Scan accuracy
+ *      may get impacted with this flag. This flag cannot be used with
+ * @SME_SCAN_FLAG_LOW_POWER: This flag intends the scan attempts
+ *      to consume optimal possible power. Drivers can resort to their
+ *      specific means to optimize the power. Scan accuracy may get impacted
+ *      with this flag.
+ * @SME_SCAN_FLAG_HIGH_ACCURACY: Accuracy here intends to the
+ *      extent of scan results obtained. Thus HIGH_ACCURACY scan flag aims to
+ *      get maximum possible scan results. This flag hints the driver to use
+ *      the best possible scan configuration to improve the accuracy in
+ *      scanning.Latency and power use may get impacted with this flag.
+ */
+enum sme_scan_flags {
+	SME_SCAN_FLAG_LOW_SPAN = 1<<0,
+	SME_SCAN_FLAG_LOW_POWER = 1<<1,
+	SME_SCAN_FLAG_HIGH_ACCURACY = 1<<2,
+};
+/**
  * struct sme_5g_pref_params : 5G preference params to be read from ini
  * @rssi_boost_threshold_5g: RSSI threshold above which 5 GHz is favored
  * @rssi_boost_factor_5g: Factor by which 5GHz RSSI is boosted
@@ -269,6 +301,13 @@ QDF_STATUS sme_close_session(tHalHandle hHal, uint8_t sessionId,
 		bool flush_all_sme_cmds,
 		csr_roamSessionCloseCallback callback,
 		void *pContext);
+/**
+ * sme_print_commands(): Print active, pending sme and scan commands
+ * @hal_handle: The handle returned by mac_open
+ *
+ * Return: None
+ */
+void sme_print_commands(tHalHandle hal_handle);
 QDF_STATUS sme_update_roam_params(tHalHandle hHal, uint8_t session_id,
 		struct roam_ext_params *roam_params_src, int update_param);
 #ifdef FEATURE_WLAN_SCAN_PNO
@@ -617,8 +656,8 @@ QDF_STATUS sme_receive_filter_clear_filter(tHalHandle hHal,
 #endif /* WLAN_FEATURE_PACKET_FILTERING */
 bool sme_is_channel_valid(tHalHandle hHal, uint8_t channel);
 QDF_STATUS sme_set_freq_band(tHalHandle hHal, uint8_t sessionId,
-		eCsrBand eBand);
-QDF_STATUS sme_get_freq_band(tHalHandle hHal, eCsrBand *pBand);
+		tSirRFBand eBand);
+QDF_STATUS sme_get_freq_band(tHalHandle hHal, tSirRFBand *pBand);
 #ifdef WLAN_FEATURE_GTK_OFFLOAD
 QDF_STATUS sme_set_gtk_offload(tHalHandle hal_ctx,
 		tpSirGtkOffloadParams request,
@@ -631,7 +670,7 @@ uint16_t sme_chn_to_freq(uint8_t chanNum);
 bool sme_is_channel_valid(tHalHandle hHal, uint8_t channel);
 QDF_STATUS sme_set_max_tx_power(tHalHandle hHal, struct qdf_mac_addr pBssid,
 		struct qdf_mac_addr pSelfMacAddress, int8_t dB);
-QDF_STATUS sme_set_max_tx_power_per_band(eCsrBand band, int8_t db);
+QDF_STATUS sme_set_max_tx_power_per_band(tSirRFBand band, int8_t db);
 QDF_STATUS sme_set_tx_power(tHalHandle hHal, uint8_t sessionId,
 		struct qdf_mac_addr bssid,
 		enum tQDF_ADAPTER_MODE dev_mode, int power);
@@ -821,6 +860,17 @@ QDF_STATUS sme_request_ibss_peer_info(tHalHandle hHal, void *pUserData,
 	pIbssPeerInfoCb peerInfoCbk, bool allPeerInfoReqd, uint8_t staIdx);
 QDF_STATUS sme_send_cesium_enable_ind(tHalHandle hHal, uint32_t sessionId);
 
+/**
+ * sme_set_wlm_latency_level_ind() - Used to set the latency level to fw
+ * @hal
+ * @session_id
+ * @latency_level
+ *
+ * Return QDF_STATUS
+ */
+QDF_STATUS sme_set_wlm_latency_level(tHalHandle hal,
+				     uint16_t session_id,
+				     uint16_t latency_level);
 /*
  * SME API to enable/disable idle mode powersave
  * This should be called only if powersave offload
@@ -1340,7 +1390,7 @@ QDF_STATUS sme_issue_same_ap_reassoc_cmd(uint8_t session_id);
 void sme_set_pdev_ht_vht_ies(tHalHandle hHal, bool enable2x2);
 
 void sme_update_vdev_type_nss(tHalHandle hal, uint8_t max_supp_nss,
-		uint32_t vdev_type_nss, eCsrBand band);
+		uint32_t vdev_type_nss, tSirRFBand band);
 void sme_update_hw_dbs_capable(tHalHandle hal, uint8_t hw_dbs_capable);
 void sme_register_p2p_lo_event(tHalHandle hHal, void *context,
 					p2p_lo_callback callback);
@@ -1387,6 +1437,16 @@ QDF_STATUS sme_set_default_scan_ie(tHalHandle hal, uint16_t session_id,
 QDF_STATUS sme_update_session_param(tHalHandle hal, uint8_t session_id,
 		uint32_t param_type, uint32_t param_val);
 
+/**
+ * sme_update_fils_setting() - API to update PE FILS setting
+ * @hal: HAL handle for device
+ * @session_id: Session ID
+ * @param_val: Param value to be update
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS sme_update_fils_setting(tHalHandle hal, uint8_t session_id,
+				   uint8_t param_val);
 #ifdef WLAN_FEATURE_DISA
 /**
  * sme_encrypt_decrypt_msg_register_callback() - Registers
@@ -1496,6 +1556,19 @@ QDF_STATUS sme_power_debug_stats_req(tHalHandle hal, void (*callback_fn)
 				(struct  power_stats_response *response,
 				void *context), void *power_stats_context);
 #endif
+
+/**
+ * sme_get_sar_power_limits() - get SAR limits
+ * @hal: HAL handle
+ * @callback: Callback function to invoke with the results
+ * @context: Opaque context to pass back to caller in the callback
+ *
+ * Return: QDF_STATUS_SUCCESS if the request is successfully sent
+ * to firmware for processing, otherwise an error status.
+ */
+QDF_STATUS sme_get_sar_power_limits(tHalHandle hal,
+				    wma_sar_cb callback, void *context);
+
 /**
  * sme_set_sar_power_limits() - set sar limits
  * @hal: HAL handle
@@ -1505,6 +1578,7 @@ QDF_STATUS sme_power_debug_stats_req(tHalHandle hal, void (*callback_fn)
  */
 QDF_STATUS sme_set_sar_power_limits(tHalHandle hal,
 				    struct sar_limit_cmd_params *sar_limit_cmd);
+
 void sme_set_cc_src(tHalHandle hal_handle, enum country_src);
 
 
@@ -1928,5 +2002,49 @@ void sme_display_disconnect_stats(tHalHandle hal, uint8_t session_id);
  * Return: QDF_STATUS
  */
 QDF_STATUS sme_set_vc_mode_config(uint32_t vc_bitmap);
+
+/*
+ * sme_send_limit_off_channel_params() - send limit off channel parameters
+ * @hal: global hal handle
+ * @vdev_id: vdev id
+ * @is_tos_active: tos active or inactive
+ * @max_off_chan_time: max off channel time
+ * @rest_time: rest time
+ * @skip_dfs_chan: skip dfs channel
+ *
+ * This function sends command to WMA for setting limit off channel command
+ * parameters.
+ *
+ * Return: QDF_STATUS enumeration.
+ */
+QDF_STATUS sme_send_limit_off_channel_params(tHalHandle hal, uint8_t vdev_id,
+		bool is_tos_active, uint32_t max_off_chan_time,
+		uint32_t rest_time, bool skip_dfs_chan);
+
+/**
+ * sme_fast_reassoc() - invokes FAST REASSOC command
+ * @hal: handle returned by mac_open
+ * @profile: current connected profile
+ * @bssid: bssid to look for in scan cache
+ * @channel: channel on which reassoc should be send
+ * @vdev_id: vdev id
+ * @connected_bssid: bssid of currently connected profile
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS sme_fast_reassoc(tHalHandle hal, tCsrRoamProfile *profile,
+			    const tSirMacAddr bssid, int channel,
+			    uint8_t vdev_id, const tSirMacAddr connected_bssid);
+
+/**
+ * sme_enable_roaming_on_connected_sta() - Enable roaming on an connected sta
+ * @hal: handle returned by mac_open
+ *
+ * The function check if any connected STA is present on which roaming is not
+ * enabled and if present enabled roaming on that STA.
+ *
+ * Return: none
+ */
+void sme_enable_roaming_on_connected_sta(tHalHandle hal);
 
 #endif /* #if !defined( __SME_API_H ) */
