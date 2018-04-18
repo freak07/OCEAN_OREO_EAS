@@ -48,7 +48,7 @@ do {									\
 } while (0)
 
 static inline int
-futex_atomic_op_inuser(unsigned int encoded_op, u32 __user *uaddr)
+futex_atomic_op_inuser(unsigned int encoded_op, u32 __user *_uaddr)
 {
 	int op = (encoded_op >> 28) & 7;
 	int cmp = (encoded_op >> 24) & 15;
