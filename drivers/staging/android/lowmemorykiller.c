@@ -64,7 +64,7 @@
 
 #define HOME_APP_ADJ 411  // oom_adj 7
 
-static uint32_t lowmem_debug_level = 1;
+static uint32_t lowmem_debug_level = 0;
 static short lowmem_adj[6] = {
 	0,
 	1,
