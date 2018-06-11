@@ -72,3 +72,5 @@ obj-$(CONFIG_FPR_FPC)  += fpr_FingerprintCard/
 obj-$(CONFIG_GOODIX_FP)  += goodix_fp/
 obj-$(CONFIG_UCI)  += uci/
 obj-$(CONFIG_FORCE_FAST_CHARGE) += fastchg.o
+
+obj-$(CONFIG_DTS_EAGLE)         += dts_eagle/
