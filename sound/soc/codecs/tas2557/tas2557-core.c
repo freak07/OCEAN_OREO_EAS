@@ -1258,7 +1258,7 @@ static int fw_parse_data(struct tas2557_priv *pTAS2557, struct TFirmware *pFirmw
 	pData += 2;
 
 	pImageData->mpBlocks =
-		kmalloc(sizeof(struct TBlock) * pImageData->mnBlocks, GFP_KERNEL);
+		kmalloc_array(sizeof(struct TBlock), pImageData->mnBlocks, GFP_KERNEL);
 
 	for (nBlock = 0; nBlock < pImageData->mnBlocks; nBlock++) {
 		n = fw_parse_block_data(pTAS2557, pFirmware,
@@ -1320,7 +1320,7 @@ static int fw_parse_program_data(struct tas2557_priv *pTAS2557,
 		goto end;
 
 	pFirmware->mpPrograms =
-		kmalloc(sizeof(struct TProgram) * pFirmware->mnPrograms, GFP_KERNEL);
+		kmalloc_array(sizeof(struct TProgram), pFirmware->mnPrograms, GFP_KERNEL);
 /* HTC_AUD_START Fix Klockwork */
 	if (pFirmware->mpPrograms == NULL)
 		return -EINVAL;
@@ -1364,7 +1364,7 @@ static int fw_parse_configuration_data(struct tas2557_priv *pTAS2557,
 		goto end;
 
 	pFirmware->mpConfigurations =
-		kmalloc(sizeof(struct TConfiguration) * pFirmware->mnConfigurations,
+		kmalloc_array(sizeof(struct TConfiguration), pFirmware->mnConfigurations,
 		GFP_KERNEL);
 /* HTC_AUD_START Fix Klockwork */
 	if (pFirmware->mpConfigurations == NULL)
@@ -1429,7 +1429,7 @@ int fw_parse_calibration_data(struct tas2557_priv *pTAS2557,
 		goto end;
 
 	pFirmware->mpCalibrations =
-		kmalloc(sizeof(struct TCalibration) * pFirmware->mnCalibrations, GFP_KERNEL);
+		kmalloc_array(sizeof(struct TCalibration), pFirmware->mnCalibrations, GFP_KERNEL);
 /* HTC_AUD_START Fix Klockwork */
 	if (pFirmware->mpCalibrations == NULL)
 		return -EINVAL;
