@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -185,7 +185,8 @@ typedef struct sPESession       /* Added to Support BT-AMP */
 	uint64_t lastBeaconTimeStamp;
 	/* RX Beacon count for the current BSS to which STA is connected. */
 	uint32_t currentBssBeaconCnt;
-	uint8_t bcon_dtim_period;
+	uint8_t lastBeaconDtimCount;
+	uint8_t lastBeaconDtimPeriod;
 
 	uint32_t bcnLen;
 	uint8_t *beacon;        /* Used to store last beacon / probe response before assoc. */
@@ -485,7 +486,7 @@ typedef struct sPESession       /* Added to Support BT-AMP */
 	/* Supported NSS is intersection of self and peer NSS */
 	bool supported_nss_1x1;
 	bool is_ext_caps_present;
-	uint16_t beacon_tx_rate;
+	uint8_t beacon_tx_rate;
 	uint8_t *access_policy_vendor_ie;
 	uint8_t access_policy;
 	bool ignore_assoc_disallowed;

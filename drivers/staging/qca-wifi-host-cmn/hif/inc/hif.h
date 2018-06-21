@@ -51,8 +51,6 @@ extern "C" {
 typedef void __iomem *A_target_id_t;
 typedef void *hif_handle_t;
 
-#define HIF_DBG_PRINT_RATE 1000
-
 #define HIF_TYPE_AR6002   2
 #define HIF_TYPE_AR6003   3
 #define HIF_TYPE_AR6004   5
@@ -149,8 +147,8 @@ struct qca_napi_info {
 	int                  irq;
 	struct qca_napi_stat stats[NR_CPUS];
 	/* will only be present for data rx CE's */
-	void (*offld_flush_cb)(void *arg);
-	void                 *offld_ctx;
+	void (*lro_flush_cb)(void *arg);
+	void                 *lro_ctx;
 };
 
 /**
@@ -711,12 +709,11 @@ int ol_copy_ramdump(struct hif_opaque_softc *hif_ctx);
 void hif_crash_shutdown(struct hif_opaque_softc *hif_ctx);
 void hif_get_hw_info(struct hif_opaque_softc *hif_ctx, u32 *version,
 		     u32 *revision, const char **target_name);
-
-void hif_offld_flush_cb_register(struct hif_opaque_softc *scn,
-			       void (offld_flush_handler)(void *),
-			       void *(offld_init_handler)(void));
-void hif_offld_flush_cb_deregister(struct hif_opaque_softc *hif_ctx,
-				 void (offld_deinit_cb)(void *arg));
+void hif_lro_flush_cb_register(struct hif_opaque_softc *hif_ctx,
+			       void (lro_flush_handler)(void *arg),
+			       void *(lro_init_handler)(void));
+void hif_lro_flush_cb_deregister(struct hif_opaque_softc *hif_ctx,
+				 void (lro_deinit_cb)(void *arg));
 bool hif_needs_bmi(struct hif_opaque_softc *hif_ctx);
 enum qdf_bus_type hif_get_bus_type(struct hif_opaque_softc *hif_hdl);
 struct hif_target_info *hif_get_target_info_handle(struct hif_opaque_softc *
@@ -752,22 +749,12 @@ void hif_set_bundle_mode(struct hif_opaque_softc *hif_ctx, bool enabled,
 int hif_bus_reset_resume(struct hif_opaque_softc *hif_ctx);
 
 void *hif_get_lro_info(int ctx_id, struct hif_opaque_softc *hif_hdl);
-
-typedef void (*hif_fake_resume_callback)(uint32_t val);
 #ifdef WLAN_SUSPEND_RESUME_TEST
+typedef void (*hif_fake_resume_callback)(uint32_t val);
 void hif_fake_apps_suspend(struct hif_opaque_softc *hif_ctx,
 			   hif_fake_resume_callback callback);
 void hif_fake_apps_resume(struct hif_opaque_softc *hif_ctx);
-#else
-static inline void hif_fake_apps_suspend(struct hif_opaque_softc *hif_ctx,
-			   hif_fake_resume_callback callback)
-{
-}
-
-static inline void hif_fake_apps_resume(struct hif_opaque_softc *hif_ctx)
-{
-}
-#endif /* End of WLAN_SUSPEND_RESUME_TEST */
+#endif
 
 #ifdef HIF_SDIO
 /**

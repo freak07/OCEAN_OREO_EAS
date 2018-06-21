@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -394,7 +394,7 @@ static void process_reorder(ol_txrx_pdev_handle pdev,
 			    qdf_nbuf_t head_msdu,
 			    qdf_nbuf_t tail_msdu,
 			    int num_mpdu_ranges,
-			    int num_mpdus,
+			    int num_pdus,
 			    bool rx_ind_release)
 {
 	htt_pdev_handle htt_pdev = pdev->htt_pdev;
@@ -805,8 +805,6 @@ ol_rx_sec_ind_handler(ol_txrx_pdev_handle pdev,
 			peer->tids_last_pn[i].pn128[0] =
 				qdf_cpu_to_le64(
 					peer->tids_last_pn[i].pn128[0]);
-			if (sec_index == txrx_sec_ucast)
-				peer->tids_rekey_flag[i] = 1;
 		}
 	}
 }
@@ -1163,13 +1161,9 @@ ol_rx_filter(struct ol_txrx_vdev_t *vdev,
 }
 
 #ifdef WLAN_FEATURE_TSF_PLUS
-static inline void ol_rx_timestamp(ol_pdev_handle pdev,
-				   void *rx_desc, qdf_nbuf_t msdu)
+static inline void ol_rx_timestamp(void *rx_desc, qdf_nbuf_t msdu)
 {
 	struct htt_rx_ppdu_desc_t *rx_ppdu_desc;
-
-	if (!ol_cfg_is_ptp_rx_opt_enabled(pdev))
-		return;
 
 	if (!rx_desc || !msdu)
 		return;
@@ -1177,11 +1171,10 @@ static inline void ol_rx_timestamp(ol_pdev_handle pdev,
 	rx_ppdu_desc = (struct htt_rx_ppdu_desc_t *)((uint8_t *)(rx_desc) -
 			HTT_RX_IND_HL_BYTES + HTT_RX_IND_HDR_PREFIX_BYTES);
 	msdu->tstamp = ns_to_ktime((u_int64_t)rx_ppdu_desc->tsf32 *
-				   NSEC_PER_USEC);
+			NSEC_PER_USEC);
 }
 #else
-static inline void ol_rx_timestamp(ol_pdev_handle pdev,
-				   void *rx_desc, qdf_nbuf_t msdu)
+static inline void ol_rx_timestamp(void *rx_desc, qdf_nbuf_t msdu)
 {
 }
 #endif
@@ -1367,7 +1360,7 @@ DONE:
 					       OL_RX_ERR_NONE);
 			TXRX_STATS_MSDU_INCR(vdev->pdev, rx.delivered, msdu);
 
-			ol_rx_timestamp(pdev->ctrl_pdev, rx_desc, msdu);
+			ol_rx_timestamp(rx_desc, msdu);
 			OL_TXRX_LIST_APPEND(deliver_list_head,
 					    deliver_list_tail, msdu);
 		}
@@ -1485,6 +1478,11 @@ ol_rx_in_order_indication_handler(ol_txrx_pdev_handle pdev,
 	uint8_t pktlog_bit;
 #endif
 	uint32_t filled = 0;
+	if (tid >= OL_TXRX_NUM_EXT_TIDS) {
+		ol_txrx_err("%s:  invalid tid, %u\n", __FUNCTION__, tid);
+		WARN_ON(1);
+		return;
+	}
 
 	if (pdev) {
 		if (qdf_unlikely(QDF_GLOBAL_MONITOR_MODE == cds_get_conparam()))

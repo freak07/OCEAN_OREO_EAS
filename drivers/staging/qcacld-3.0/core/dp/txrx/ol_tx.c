@@ -299,8 +299,6 @@ qdf_nbuf_t ol_tx_send_ipa_data_frame(void *vdev,
 	qdf_nbuf_t ret;
 
 	if (qdf_unlikely(!pdev)) {
-		qdf_net_buf_debug_acquire_skb(skb, __FILE__, __LINE__);
-
 		ol_txrx_err("%s: pdev is NULL", __func__);
 		return skb;
 	}
@@ -312,13 +310,6 @@ qdf_nbuf_t ol_tx_send_ipa_data_frame(void *vdev,
 
 	/* Terminate the (single-element) list of tx frames */
 	qdf_nbuf_set_next(skb, NULL);
-
-	/*
-	 * Add SKB to internal tracking table before further processing
-	 * in WLAN driver.
-	 */
-	qdf_net_buf_debug_acquire_skb(skb, __FILE__, __LINE__);
-
 	ret = OL_TX_SEND((struct ol_txrx_vdev_t *)vdev, skb);
 	if (ret) {
 		ol_txrx_dbg("%s: Failed to tx", __func__);
@@ -990,12 +981,7 @@ ol_tx_ll_wrapper(ol_txrx_vdev_handle vdev, qdf_nbuf_t msdu_list)
 
 #ifdef QCA_LL_LEGACY_TX_FLOW_CONTROL
 
-#ifdef FEATURE_WLAN_LL_LEGACY_TX_FLOW_CT
-#define OL_TX_VDEV_PAUSE_QUEUE_SEND_MARGIN 0
-#else
 #define OL_TX_VDEV_PAUSE_QUEUE_SEND_MARGIN 400
-#endif
-
 #define OL_TX_VDEV_PAUSE_QUEUE_SEND_PERIOD_MS 5
 static void ol_tx_vdev_ll_pause_queue_send_base(struct ol_txrx_vdev_t *vdev)
 {
@@ -1052,11 +1038,9 @@ static void ol_tx_vdev_ll_pause_queue_send_base(struct ol_txrx_vdev_t *vdev)
 	}
 	if (vdev->ll_pause.txq.depth) {
 		qdf_timer_stop(&vdev->ll_pause.timer);
-		if (!qdf_atomic_read(&vdev->delete.detaching)) {
-			qdf_timer_start(&vdev->ll_pause.timer,
+		qdf_timer_start(&vdev->ll_pause.timer,
 					OL_TX_VDEV_PAUSE_QUEUE_SEND_PERIOD_MS);
-			vdev->ll_pause.is_q_timer_on = true;
-		}
+		vdev->ll_pause.is_q_timer_on = true;
 		if (vdev->ll_pause.txq.depth >= vdev->ll_pause.max_q_depth)
 			vdev->ll_pause.q_overflow_cnt++;
 	}
@@ -1096,11 +1080,9 @@ ol_tx_vdev_pause_queue_append(struct ol_txrx_vdev_t *vdev,
 
 	if (start_timer) {
 		qdf_timer_stop(&vdev->ll_pause.timer);
-		if (!qdf_atomic_read(&vdev->delete.detaching)) {
-			qdf_timer_start(&vdev->ll_pause.timer,
+		qdf_timer_start(&vdev->ll_pause.timer,
 					OL_TX_VDEV_PAUSE_QUEUE_SEND_PERIOD_MS);
-			vdev->ll_pause.is_q_timer_on = true;
-		}
+		vdev->ll_pause.is_q_timer_on = true;
 	}
 	qdf_spin_unlock_bh(&vdev->ll_pause.mutex);
 
@@ -1272,8 +1254,7 @@ void ol_tx_vdev_ll_pause_queue_send(void *context)
 	struct ol_txrx_vdev_t *vdev = (struct ol_txrx_vdev_t *)context;
 	struct ol_txrx_pdev_t *pdev = vdev->pdev;
 
-	if (pdev &&
-	    pdev->tx_throttle.current_throttle_level != THROTTLE_LEVEL_0 &&
+	if (pdev->tx_throttle.current_throttle_level != THROTTLE_LEVEL_0 &&
 	    pdev->tx_throttle.current_throttle_phase == THROTTLE_PHASE_OFF)
 		return;
 	ol_tx_vdev_ll_pause_queue_send_base(vdev);

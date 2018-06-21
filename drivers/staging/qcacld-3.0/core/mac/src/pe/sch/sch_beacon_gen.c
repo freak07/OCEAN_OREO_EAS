@@ -554,7 +554,6 @@ tSirRetStatus lim_update_probe_rsp_template_ie_bitmap_beacon1(tpAniSirGlobal pMa
 {
 	uint32_t *DefProbeRspIeBitmap;
 	tDot11fProbeResponse *prb_rsp;
-
 	if (!psessionEntry) {
 		pe_debug("PESession is null!");
 		return eSIR_FAILURE;
@@ -867,7 +866,6 @@ void sch_generate_tim(tpAniSirGlobal pMac, uint8_t **pPtr, uint16_t *timLength,
 	/* Generate partial virtual bitmap */
 	uint8_t N1 = minAid / 8;
 	uint8_t N2 = maxAid / 8;
-
 	if (N1 & 1)
 		N1--;
 
@@ -890,7 +888,7 @@ void sch_generate_tim(tpAniSirGlobal pMac, uint8_t **pPtr, uint16_t *timLength,
 	*ptr++ = 0xFF;
 	ptr += (N2 - N1 + 1);
 
-	*pPtr = ptr;
+	* pPtr = ptr;
 }
 /* -------------------------------------------------------------------- */
 /**
@@ -946,7 +944,6 @@ void sch_process_pre_beacon_ind(tpAniSirGlobal pMac, tpSirMsgQ limMsg)
 			&psessionEntry->pSchBeaconFrameBegin[psessionEntry->
 							     schBeaconOffsetBegin];
 		uint16_t timLength = 0;
-
 		if (psessionEntry->statypeForBss == STA_ENTRY_SELF) {
 			sch_generate_tim(pMac, &ptr, &timLength,
 					 psessionEntry->dtimPeriod);

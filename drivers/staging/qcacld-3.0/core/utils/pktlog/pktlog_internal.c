@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -276,6 +276,13 @@ fill_ieee80211_hdr_data(struct ol_txrx_pdev_t *txrx_pdev,
 	pl_msdu_info->priv_size = sizeof(uint32_t) *
 				 pl_msdu_info->num_msdu + sizeof(uint32_t);
 
+	if (pl_msdu_info->num_msdu > MAX_PKT_INFO_MSDU_ID) {
+		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_ERROR,
+			  "%s: Invalid num_msdu count",
+			  __func__);
+		qdf_assert(0);
+		return;
+	}
 	for (i = 0; i < pl_msdu_info->num_msdu; i++) {
 		/*
 		 * Handle big endianness
@@ -393,7 +400,6 @@ A_STATUS process_tx_info(struct ol_txrx_pdev_t *txrx_pdev, void *data)
 	if (pl_hdr.log_type == PKTLOG_TYPE_TX_CTRL) {
 		size_t log_size = sizeof(frm_hdr) + pl_hdr.size;
 		void *txdesc_hdr_ctl = (void *)
-
 		pktlog_getbuf(pl_dev, pl_info, log_size, &pl_hdr);
 		qdf_assert(txdesc_hdr_ctl);
 		qdf_assert(pl_hdr.size < (370 * sizeof(u_int32_t)));

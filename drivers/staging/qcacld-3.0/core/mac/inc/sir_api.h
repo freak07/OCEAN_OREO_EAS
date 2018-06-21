@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -59,7 +59,6 @@ typedef struct sAniSirGlobal *tpAniSirGlobal;
 #include <dot11f.h>
 
 #define MAX_PEERS 32
-#define SIR_MAX_SUPPORTED_BSS 5
 
 #define OFFSET_OF(structType, fldName)   (&((structType *)0)->fldName)
 
@@ -142,7 +141,6 @@ typedef uint8_t tSirVersionString[SIR_VERSION_STRING_LEN];
 /* Maximum peer station number query one time */
 #define MAX_PEER_STA 12
 
-#define SIR_NAN_CH_INFO_MAX_CHANNELS 4
 /**
  * enum sir_conn_update_reason: Reason for conc connection update
  * @SIR_UPDATE_REASON_SET_OPER_CHAN: Set probable operating channel
@@ -420,20 +418,10 @@ typedef struct sSirSupportedRates {
 	uint16_t vhtTxHighestDataRate;
 } tSirSupportedRates, *tpSirSupportedRates;
 
-/**
- * enum eSirRFBand
- * @SIR_BAND_ALL:all bands
- * @SIR_BAND_2_4_GHZ: 2G band
- * @SIR_BAND_5_GHZ: 5G band
- * @SIR_BAND_UNKNOWN: Unsupported band
- * @SIR_BAND_MAX: Max number of band
- */
 typedef enum eSirRFBand {
-	SIR_BAND_ALL,
+	SIR_BAND_UNKNOWN,
 	SIR_BAND_2_4_GHZ,
 	SIR_BAND_5_GHZ,
-	SIR_BAND_UNKNOWN,
-	SIR_BAND_MAX = SIR_BAND_UNKNOWN,
 } tSirRFBand;
 
 typedef struct sSirRemainOnChnReq {
@@ -758,7 +746,7 @@ typedef struct sSirSmeStartBssReq {
 
 	bool obssEnabled;
 	uint8_t sap_dot11mc;
-	uint16_t beacon_tx_rate;
+	uint8_t beacon_tx_rate;
 	bool vendor_vht_sap;
 
 } tSirSmeStartBssReq, *tpSirSmeStartBssReq;
@@ -837,7 +825,6 @@ typedef struct sSirBssDescription {
 	uint8_t nss;
 	uint8_t oce_wan_present;
 	uint8_t oce_wan_down_cap;
-	uint32_t rssi_per_chain[ATH_MAX_ANTENNA];
 	/* Please keep the structure 4 bytes aligned above the ieFields */
 	uint32_t ieFields[1];
 
@@ -3113,19 +3100,6 @@ struct connected_pno_band_rssi_pref {
 };
 
 /**
- * struct sir_nlo_mawc_params - MAWC based NLO configuration
- * @mawc_nlo_enabled: enable/disable MAWC based NLO
- * @exp_backoff_ratio: MAWC based NLO exponential backoff ratio
- * @init_scan_interval: MAWC based NLO initial scan interval
- * @max_scan_interval: MAWC based NLO maximum scan interval
- */
-struct sir_nlo_mawc_params {
-	bool mawc_nlo_enabled;
-	uint32_t exp_backoff_ratio;
-	uint32_t init_scan_interval;
-	uint32_t max_scan_interval;
-};
-/**
  * struct sSirPNOScanReq - PNO Scan request structure
  * @enable: flag to enable or disable
  * @modePNO: PNO Mode
@@ -3159,7 +3133,6 @@ typedef struct sSirPNOScanReq {
 	uint32_t delay_start_time;
 	uint8_t fast_scan_max_cycles;
 	uint32_t scan_backoff_multiplier;
-	struct sir_nlo_mawc_params mawc_params;
 	uint32_t        active_min_time;
 	uint32_t        active_max_time;
 	uint32_t        passive_min_time;
@@ -3258,21 +3231,6 @@ typedef struct {
 
 #define ALLOWED_ACTION_FRAME_MAP_WORDS (SIR_MAC_ACTION_MAX / 32)
 
-/*
- * DROP_PUBLIC_ACTION_FRAME_BITMAP
- *
- * Bitmask is based on the below. The frames with 1's
- * set to their corresponding bit can be dropped in FW.
- *
- * ----------------------------------+-----+------+
- *         Type                      | Bit | Drop |
- * ----------------------------------+-----+------+
- * SIR_MAC_ACTION_MEASUREMENT_PILOT  |  7  |   1  |
- * ----------------------------------+-----+------+
- */
-#define DROP_PUBLIC_ACTION_FRAME_BITMAP \
-		(1 << SIR_MAC_ACTION_MEASUREMENT_PILOT)
-
 #ifndef ANI_SUPPORT_11H
 /*
  * DROP_SPEC_MGMT_ACTION_FRAME_BITMAP
@@ -3284,7 +3242,7 @@ typedef struct {
  *         Type                      | Bit | Drop |
  * ----------------------------------+-----+------+
  * SIR_MAC_ACTION_MEASURE_REQUEST_ID    0     1
- * SIR_MAC_ACTION_TPC_REQUEST_ID        2     1
+ * SIR_MAC_ACTION_TPC_REQUEST_ID        1     1
  * ----------------------------------+-----+------+
  */
 #define DROP_SPEC_MGMT_ACTION_FRAME_BITMAP \
@@ -3545,35 +3503,17 @@ struct pmkid_mode_bits {
  * @num_disallowed_aps: Maximum number of AP's in LCA list
  *
  */
-struct lca_disallow_config_params {
+struct lca_disallow_config_params{
     uint32_t disallow_duration;
     uint32_t rssi_channel_penalization;
     uint32_t num_disallowed_aps;
-};
-
-/**
- * struct mawc_params - Motion Aided Wireless Connectivity configuration
- * @MAWCEnabled: Global configuration for MAWC (Roaming/PNO/ExtScan)
- * @mawc_roam_enabled: MAWC roaming enable/disable
- * @mawc_roam_traffic_threshold: Traffic threshold in kBps for MAWC roaming
- * @mawc_roam_ap_rssi_threshold: AP RSSI threshold for MAWC roaming
- * @mawc_roam_rssi_high_adjust: High Adjustment value for suppressing scan
- * @mawc_roam_rssi_low_adjust: Low Adjustment value for suppressing scan
- */
-struct mawc_params {
-	bool mawc_enabled;
-	bool mawc_roam_enabled;
-	uint32_t mawc_roam_traffic_threshold;
-	int8_t mawc_roam_ap_rssi_threshold;
-	uint8_t mawc_roam_rssi_high_adjust;
-	uint8_t mawc_roam_rssi_low_adjust;
 };
 
 typedef struct sSirRoamOffloadScanReq {
 	uint16_t message_type;
 	uint16_t length;
 	bool RoamScanOffloadEnabled;
-	struct mawc_params mawc_roam_params;
+	bool MAWCEnabled;
 	int8_t LookupThreshold;
 	int8_t rssi_thresh_offset_5g;
 	uint8_t delay_before_vdev_stop;
@@ -7715,19 +7655,6 @@ struct ndp_responder_rsp_event {
 };
 
 /**
- * struct ndp_channel_info - ndp channel and channel bandwidth
- * @channel: channel width of the ndp connection
- * @ch_width: channel width of the ndp connection
- * @nss: nss used for ndp connection
- *
- */
-struct ndp_channel_info {
-	uint32_t channel;
-	uint32_t ch_width;
-	uint32_t nss;
-};
-
-/**
  * struct ndp_confirm_event - ndp confirmation event from FW
  * @vdev_id: session id of the interface over which ndp is being created
  * @ndp_instance_id: ndp instance id for which confirm is being generated
@@ -7735,8 +7662,6 @@ struct ndp_channel_info {
  * @num_active_ndps_on_peer: number of ndp instances on peer
  * @peer_ndi_mac_addr: peer NDI mac address
  * @rsp_code: ndp response code
- * @num_channels: num channels
- * @ch: channel info struct array
  * @ndp_info: ndp application info
  *
  */
@@ -7747,8 +7672,6 @@ struct ndp_confirm_event {
 	uint32_t num_active_ndps_on_peer;
 	struct qdf_mac_addr peer_ndi_mac_addr;
 	enum ndp_response_code rsp_code;
-	uint32_t num_channels;
-	struct ndp_channel_info ch[SIR_NAN_CH_INFO_MAX_CHANNELS];
 	struct ndp_app_info ndp_info;
 };
 
@@ -7836,27 +7759,6 @@ struct ndp_schedule_update_rsp {
 	uint32_t vdev_id;
 	uint32_t status;
 	uint32_t reason;
-};
-
-/**
- * struct ndp_sch_update_event - ndp schedule update indication
- * @vdev_id: vdev id on which ndp schedule update was received
- * @peer_addr: peer for which schedule update was received
- * @flags: reason for sch update
- * @num_channels: num of channels
- * @num_ndp_instances: num of ndp instances
- * @ch: channel info array
- * @ndp_instances: array of ndp instances
- *
- */
-struct ndp_sch_update_event {
-	uint32_t vdev_id;
-	struct qdf_mac_addr peer_addr;
-	uint32_t flags;
-	uint32_t num_channels;
-	uint32_t num_ndp_instances;
-	struct ndp_channel_info ch[SIR_NAN_CH_INFO_MAX_CHANNELS];
-	uint32_t *ndp_instances;
 };
 
 /**
@@ -8097,9 +7999,6 @@ struct sme_rcpi_req {
  * @dad_detected: dad detected
  * @connect_status: connection status
  * @ba_session_establishment_status: BA session status
- * @connect_stats_present: connectivity stats present or not
- * @tcp_ack_recvd: tcp syn ack's count
- * @icmpv4_rsp_recvd: icmpv4 responses count
  */
 struct rsp_stats {
 	uint32_t vdev_id;
@@ -8111,9 +8010,6 @@ struct rsp_stats {
 	uint32_t dad_detected;
 	uint32_t connect_status;
 	uint32_t ba_session_establishment_status;
-	bool connect_stats_present;
-	uint32_t tcp_ack_recvd;
-	uint32_t icmpv4_rsp_recvd;
 };
 
 /**
@@ -8122,22 +8018,12 @@ struct rsp_stats {
  * @flag: enable/disable stats
  * @pkt_type: type of packet(1 - arp)
  * @ip_addr: subnet ipv4 address in case of encrypted packets
- * @pkt_type_bitmap: pkt bitmap
- * @tcp_src_port: tcp src port for pkt tracking
- * @tcp_dst_port: tcp dst port for pkt tracking
- * @icmp_ipv4: target ipv4 address to track ping packets
- * @reserved: reserved
  */
 struct set_arp_stats_params {
 	uint32_t vdev_id;
 	uint8_t flag;
 	uint8_t pkt_type;
 	uint32_t ip_addr;
-	uint32_t pkt_type_bitmap;
-	uint32_t tcp_src_port;
-	uint32_t tcp_dst_port;
-	uint32_t icmp_ipv4;
-	uint32_t reserved;
 };
 
 /**

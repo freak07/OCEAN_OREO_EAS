@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -60,59 +60,6 @@ void hdd_tx_timeout(struct net_device *dev);
 QDF_STATUS hdd_init_tx_rx(hdd_adapter_t *pAdapter);
 QDF_STATUS hdd_deinit_tx_rx(hdd_adapter_t *pAdapter);
 QDF_STATUS hdd_rx_packet_cbk(void *context, qdf_nbuf_t rxBuf);
-
-/**
- * hdd_tx_rx_collect_connectivity_stats_info() - collect connectivity stats
- * @skb: pointer to skb data
- * @adapter: pointer to vdev apdapter
- * @action: action done on pkt.
- * @pkt_type: data pkt type
- *
- * Return: None
- */
-void hdd_tx_rx_collect_connectivity_stats_info(struct sk_buff *skb,
-		void *adapter, enum connectivity_stats_pkt_status action,
-		uint8_t *pkt_type);
-
-/**
- * hdd_rx_ol_init() - Initialize Rx mode(LRO or GRO) method
- * @hdd_ctx: pointer to HDD Station Context
- *
- * Return: 0 on success and non zero on failure.
- */
-int hdd_rx_ol_init(hdd_context_t *hdd_ctx);
-void hdd_gro_destroy(void);
-void ol_deregister_offld_flush_cb(void (*offload_deinit_cb)(void *data));
-
-/**
- * hdd_enable_rx_ol_in_concurrency() - Enable Rx offload
- * @hdd_ctx: hdd context
- *
- * Enable Rx offload if for inactive concurrency is not active
- *
- * Return: none
- */
-void hdd_enable_rx_ol_in_concurrency(hdd_context_t *hdd_ctx);
-
-/**
- * hdd_disable_rx_ol_in_concurrency() - Disable Rx offload due to concurrency
- * @hdd_ctx: hdd context
- *
- * Return: none
- */
-void hdd_disable_rx_ol_in_concurrency(hdd_context_t *hdd_ctx);
-
-/**
- * hdd_disable_rx_ol_for_low_tput() - Disable Rx offload in low TPUT scenario
- * @hdd_ctx: hdd context
- * @disable: 1 disable, 0 enable
- *
- * Return: none
- */
-void hdd_disable_rx_ol_for_low_tput(hdd_context_t *hdd_ctx, bool disable);
-
-#define CFG_LRO_ENABLED		1
-#define CFG_GRO_ENABLED		2
 
 #ifdef IPA_OFFLOAD
 QDF_STATUS hdd_rx_mul_packet_cbk(void *cds_context,
@@ -225,7 +172,7 @@ static inline void netif_trans_update(struct net_device *dev)
 #endif
 
 static inline void
-hdd_skb_fill_gso_size(struct net_device *dev,
+hdd_skb_fill_gso_size (struct net_device *dev,
 					struct sk_buff *skb) {
 	if (skb_cloned(skb) && skb_is_nonlinear(skb) &&
 		skb_shinfo(skb)->gso_size == 0 &&

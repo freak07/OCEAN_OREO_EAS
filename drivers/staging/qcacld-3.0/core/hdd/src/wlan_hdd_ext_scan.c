@@ -1657,9 +1657,8 @@ static int __wlan_hdd_cfg80211_extscan_get_capabilities(struct wiphy *wiphy,
 		hdd_err("extscan not supported");
 		return -ENOTSUPP;
 	}
-	if (hdd_nla_parse(tb,
-			  QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			  data, data_len, wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+		      data, data_len, wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -1796,8 +1795,8 @@ static int __wlan_hdd_cfg80211_extscan_get_cached_results(struct wiphy *wiphy,
 		hdd_err("extscan not supported");
 		return -ENOTSUPP;
 	}
-	if (hdd_nla_parse(tb, PARAM_MAX, data, data_len,
-			  wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, PARAM_MAX, data, data_len,
+		wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -1945,9 +1944,8 @@ __wlan_hdd_cfg80211_extscan_set_bssid_hotlist(struct wiphy *wiphy,
 		hdd_err("extscan not supported");
 		return -ENOTSUPP;
 	}
-	if (hdd_nla_parse(tb,
-			  QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			  data, data_len, wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+		      data, data_len, wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -2010,11 +2008,11 @@ __wlan_hdd_cfg80211_extscan_set_bssid_hotlist(struct wiphy *wiphy,
 			break;
 		}
 
-		if (hdd_nla_parse(tb2,
-			   QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			   nla_data(apTh), nla_len(apTh),
-			   wlan_hdd_extscan_config_policy)) {
-			hdd_err("hdd_nla_parse failed");
+		if (nla_parse
+		    (tb2, QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+		    nla_data(apTh), nla_len(apTh),
+		    wlan_hdd_extscan_config_policy)) {
+			hdd_err("nla_parse failed");
 			goto fail;
 		}
 
@@ -2163,9 +2161,8 @@ __wlan_hdd_cfg80211_extscan_set_significant_change(struct wiphy *wiphy,
 	if (0 != retval)
 		return -EINVAL;
 
-	if (hdd_nla_parse(tb,
-			  QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			  data, data_len, wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+		      data, data_len, wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -2253,11 +2250,11 @@ __wlan_hdd_cfg80211_extscan_set_significant_change(struct wiphy *wiphy,
 			break;
 		}
 
-		if (hdd_nla_parse(tb2,
-			   QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			   nla_data(apTh), nla_len(apTh),
-			   wlan_hdd_extscan_config_policy)) {
-			hdd_err("hdd_nla_parse failed");
+		if (nla_parse
+		    (tb2, QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+		    nla_data(apTh), nla_len(apTh),
+		    wlan_hdd_extscan_config_policy)) {
+			hdd_err("nla_parse failed");
 			goto fail;
 		}
 
@@ -2463,9 +2460,8 @@ __wlan_hdd_cfg80211_extscan_get_valid_channels(struct wiphy *wiphy,
 		hdd_err("extscan not supported");
 		return -ENOTSUPP;
 	}
-	if (hdd_nla_parse(tb,
-			  QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			  data, data_len, wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+		      data, data_len, wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -2718,11 +2714,11 @@ static int hdd_extscan_start_fill_bucket_channel_spec(
 			break;
 		}
 
-		if (hdd_nla_parse(bucket,
-			   QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			   nla_data(buckets), nla_len(buckets),
-			   wlan_hdd_extscan_config_policy)) {
-			hdd_err("hdd_nla_parse failed");
+		if (nla_parse(bucket,
+			      QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+			      nla_data(buckets), nla_len(buckets),
+			      wlan_hdd_extscan_config_policy)) {
+			hdd_err("nla_parse failed");
 			goto fail;
 		}
 
@@ -2944,11 +2940,11 @@ static int hdd_extscan_start_fill_bucket_channel_spec(
 							    total_channels))
 				break;
 
-			if (hdd_nla_parse(channel,
-			   QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			   nla_data(channels), nla_len(channels),
-			   wlan_hdd_extscan_config_policy)) {
-				hdd_err("hdd_nla_parse failed");
+			if (nla_parse(channel,
+				QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+				nla_data(channels), nla_len(channels),
+				wlan_hdd_extscan_config_policy)) {
+				hdd_err("nla_parse failed");
 				goto fail;
 			}
 
@@ -3162,8 +3158,8 @@ __wlan_hdd_cfg80211_extscan_start(struct wiphy *wiphy,
 		hdd_err("extscan not supported");
 		return -ENOTSUPP;
 	}
-	if (hdd_nla_parse(tb, PARAM_MAX, data, data_len,
-			  wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, PARAM_MAX, data, data_len,
+		wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -3376,8 +3372,8 @@ __wlan_hdd_cfg80211_extscan_stop(struct wiphy *wiphy,
 		hdd_err("extscan not supported");
 		return -ENOTSUPP;
 	}
-	if (hdd_nla_parse(tb, PARAM_MAX, data, data_len,
-			  wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, PARAM_MAX, data, data_len,
+			wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -3506,9 +3502,8 @@ __wlan_hdd_cfg80211_extscan_reset_bssid_hotlist(struct wiphy *wiphy,
 		hdd_err("extscan not supported");
 		return -ENOTSUPP;
 	}
-	if (hdd_nla_parse(tb,
-			  QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			  data, data_len, wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+		      data, data_len, wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -3635,10 +3630,8 @@ __wlan_hdd_cfg80211_extscan_reset_significant_change(struct wiphy
 		hdd_err("extscan not supported");
 		return -ENOTSUPP;
 	}
-
-	if (hdd_nla_parse(tb,
-			  QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
-			  data, data_len, wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, QCA_WLAN_VENDOR_ATTR_EXTSCAN_SUBCMD_CONFIG_PARAM_MAX,
+		      data, data_len, wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -3762,10 +3755,10 @@ static int hdd_extscan_epno_fill_network_list(
 			break;
 		}
 
-		if (hdd_nla_parse(network, QCA_WLAN_VENDOR_ATTR_PNO_MAX,
-				  nla_data(networks), nla_len(networks),
-				  wlan_hdd_pno_config_policy)) {
-			hdd_err("hdd_nla_parse failed");
+		if (nla_parse(network, QCA_WLAN_VENDOR_ATTR_PNO_MAX,
+			      nla_data(networks), nla_len(networks),
+			      wlan_hdd_pno_config_policy)) {
+			hdd_err("nla_parse failed");
 			return -EINVAL;
 		}
 
@@ -3777,7 +3770,7 @@ static int hdd_extscan_epno_fill_network_list(
 		ssid_len = nla_len(
 			network[QCA_WLAN_VENDOR_ATTR_PNO_SET_LIST_PARAM_EPNO_NETWORK_SSID]);
 
-		/* hdd_nla_parse will detect overflow but not underflow */
+		/* nla_parse will detect overflow but not underflow */
 		if (0 == ssid_len) {
 			hdd_err("zero ssid length");
 			return -EINVAL;
@@ -3857,14 +3850,14 @@ static int __wlan_hdd_cfg80211_set_epno_list(struct wiphy *wiphy,
 		hdd_err("extscan not supported");
 		return -ENOTSUPP;
 	}
-
 	if (QDF_GLOBAL_FTM_MODE == hdd_get_conparam()) {
 		hdd_err("Command not allowed in FTM mode");
 		return -EPERM;
 	}
 
-	if (hdd_nla_parse(tb, QCA_WLAN_VENDOR_ATTR_PNO_MAX,
-			  data, data_len, wlan_hdd_pno_config_policy)) {
+	if (nla_parse(tb, QCA_WLAN_VENDOR_ATTR_PNO_MAX,
+		      data, data_len,
+		      wlan_hdd_pno_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -4066,10 +4059,11 @@ static int hdd_extscan_passpoint_fill_network_list(
 			break;
 		}
 
-		if (hdd_nla_parse(network, QCA_WLAN_VENDOR_ATTR_PNO_MAX,
-				  nla_data(networks), nla_len(networks),
-				  wlan_hdd_pno_config_policy)) {
-			hdd_err("hdd_nla_parse failed");
+		if (nla_parse(network,
+			      QCA_WLAN_VENDOR_ATTR_PNO_MAX,
+			      nla_data(networks), nla_len(networks),
+			      wlan_hdd_pno_config_policy)) {
+			hdd_err("nla_parse failed");
 			return -EINVAL;
 		}
 
@@ -4165,8 +4159,8 @@ static int __wlan_hdd_cfg80211_set_passpoint_list(struct wiphy *wiphy,
 		return -EPERM;
 	}
 
-	if (hdd_nla_parse(tb, QCA_WLAN_VENDOR_ATTR_PNO_MAX, data, data_len,
-			  wlan_hdd_pno_config_policy)) {
+	if (nla_parse(tb, QCA_WLAN_VENDOR_ATTR_PNO_MAX, data, data_len,
+		      wlan_hdd_pno_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
@@ -4286,8 +4280,8 @@ static int __wlan_hdd_cfg80211_reset_passpoint_list(struct wiphy *wiphy,
 		return -EPERM;
 	}
 
-	if (hdd_nla_parse(tb, QCA_WLAN_VENDOR_ATTR_PNO_MAX, data, data_len,
-			  wlan_hdd_extscan_config_policy)) {
+	if (nla_parse(tb, QCA_WLAN_VENDOR_ATTR_PNO_MAX, data, data_len,
+		wlan_hdd_extscan_config_policy)) {
 		hdd_err("Invalid ATTR");
 		return -EINVAL;
 	}
