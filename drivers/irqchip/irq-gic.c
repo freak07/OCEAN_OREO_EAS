@@ -395,7 +395,7 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 		irqstat = readl_relaxed(cpu_base + GIC_CPU_INTACK);
 		irqnr = irqstat & GICC_IAR_INT_ID_MASK;
 
-		if (likely(irqnr > 15 && irqnr < 1021)) {
+		if (likely(irqnr > 15 && irqnr < 1020)) {
 #if defined(CONFIG_HTC_DEBUG_RTB)
 			uncached_logk_pc(LOGK_IRQ, (void *)(uintptr_t)htc_debug_get_sched_clock_ms(), (void *)(uintptr_t)irqnr);
 #endif /* CONFIG_HTC_DEBUG_RTB */
