@@ -534,7 +534,7 @@ static struct zram_meta *zram_meta_alloc(char *pool_name, u64 disksize)
 	}
 
 	if (!huge_class_size)
-		huge_class_size = zs_huge_class_size(zram->mem_pool);
+		huge_class_size = zs_huge_class_size(meta->mem_pool);
 
 	return meta;
 
