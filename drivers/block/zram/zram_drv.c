@@ -50,12 +50,6 @@ static const char *default_compressor = "lzo";
 /* Module params (documentation at end) */
 static unsigned int num_devices = 1;
 
-/*
- * Pages that compress to sizes equals or greater than this are stored
- * uncompressed in memory.
- */
-static size_t huge_class_size;
-
 static inline void deprecated_attr_warn(const char *name)
 {
 	pr_warn_once("%d (%s) Attribute %s (and others) will be removed. %s\n",
@@ -533,9 +527,6 @@ static struct zram_meta *zram_meta_alloc(char *pool_name, u64 disksize)
 		goto out_error;
 	}
 
-	if (!huge_class_size)
-		huge_class_size = zs_huge_class_size(zram->mem_pool);
-
 	return meta;
 
 out_error:
@@ -727,7 +718,8 @@ static int zram_bvec_write(struct zram *zram, struct bio_vec *bvec, u32 index,
 		goto out;
 	}
 	src = zstrm->buffer;
-	if (unlikely(clen >= huge_class_size)) {
+	if (unlikely(clen > max_zpage_size)) {
+		clen = PAGE_SIZE;
 		if (is_partial_io(bvec))
 			src = uncmem;
 	}
